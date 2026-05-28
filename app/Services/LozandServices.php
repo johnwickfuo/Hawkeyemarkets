@@ -868,7 +868,7 @@ class LozandServices
     private function cachedBatchQuote(string $cacheKey, array $symbols): array
     {
         if (Cache::has($cacheKey)) {
-            return Cache::get($cacheKey);
+            return $this->refreshLogoUrls(Cache::get($cacheKey));
         }
 
         if (empty($this->twelveDataKey)) {
@@ -879,14 +879,14 @@ class LozandServices
         if (!$lock->get()) {
             usleep(500_000);
             if (Cache::has($cacheKey)) {
-                return Cache::get($cacheKey);
+                return $this->refreshLogoUrls(Cache::get($cacheKey));
             }
             return $this->assembleStaleBatch($symbols) ?? $this->friendlyMarketError();
         }
 
         try {
             if (Cache::has($cacheKey)) {
-                return Cache::get($cacheKey);
+                return $this->refreshLogoUrls(Cache::get($cacheKey));
             }
 
             $fetched = $this->quoteTwelveData($symbols);
@@ -929,12 +929,12 @@ class LozandServices
         $cacheKey = $cachePrefix . $ticker;
 
         if (Cache::has($cacheKey)) {
-            return Cache::get($cacheKey);
+            return $this->refreshLogoUrls(Cache::get($cacheKey));
         }
 
         // Reuse the batch cache when warm — zero API cost.
         if ($batchCacheKey && Cache::has($batchCacheKey)) {
-            $batch = Cache::get($batchCacheKey);
+            $batch = $this->refreshLogoUrls(Cache::get($batchCacheKey));
             if (($batch['status'] ?? null) === 'success') {
                 foreach (($batch['data'] ?? []) as $row) {
                     if (strtoupper($row['ticker'] ?? '') === $ticker) {
@@ -951,7 +951,7 @@ class LozandServices
             if ($lock->get()) {
                 try {
                     if (Cache::has($cacheKey)) {
-                        return Cache::get($cacheKey);
+                        return $this->refreshLogoUrls(Cache::get($cacheKey));
                     }
                     $fetched = $this->quoteTwelveData([$ticker]);
                     if (isset($fetched[$ticker])) {
@@ -968,6 +968,7 @@ class LozandServices
         // Last resort: persistent per-symbol stale fallback.
         $fb = Cache::get('td_fallback_' . $ticker);
         if ($fb) {
+            $fb['public_png_logo_url'] = $this->logoForTicker($ticker);
             return ['status' => 'success', 'data' => $fb, 'code' => 200, 'stale' => true];
         }
 
@@ -1004,6 +1005,7 @@ class LozandServices
         foreach ($symbols as $sym) {
             $fb = Cache::get('td_fallback_' . strtoupper($sym));
             if ($fb) {
+                $fb['public_png_logo_url'] = $this->logoForTicker($fb['ticker'] ?? $sym);
                 $data[] = $fb;
             }
         }
@@ -1033,10 +1035,11 @@ class LozandServices
     }
 
     /**
-     * Build a logo URL for a stock or ETF ticker. Known tickers map to the
-     * issuer's domain and resolve via Clearbit's free logo API; unknown
-     * tickers fall back to a ui-avatars.com letter avatar so the templates
-     * never render a broken-image icon.
+     * Build a logo URL for a stock or ETF ticker. Points at our in-app
+     * /img/stock-logo/{ticker}.png endpoint, which tries multiple upstream
+     * sources server-side, caches the image bytes, and falls back to a
+     * letter avatar — so the frontend never sees a broken image regardless
+     * of which upstream provider is up.
      */
     private function logoForTicker(string $ticker): string
     {
@@ -1044,22 +1047,40 @@ class LozandServices
         if ($ticker === '') {
             return '';
         }
+        return url('/img/stock-logo/' . $ticker . '.png');
+    }
 
-        $domain = $this->tickerDomainMap[$ticker] ?? null;
-        if ($domain) {
-            return 'https://logo.clearbit.com/' . $domain;
+    /**
+     * Public accessor used by LogoController to look up the corporate /
+     * issuer domain for a curated ticker. Returns null for unknown tickers.
+     */
+    public function domainForTicker(string $ticker): ?string
+    {
+        return $this->tickerDomainMap[strtoupper(trim($ticker))] ?? null;
+    }
+
+    /**
+     * Walk a cached response and overwrite every public_png_logo_url with
+     * the current value of logoForTicker(). Lets us change logo URL logic
+     * (or rotate upstream providers) without manually flushing the cache.
+     */
+    private function refreshLogoUrls(array $result): array
+    {
+        if (!isset($result['data']) || !is_array($result['data'])) {
+            return $result;
         }
 
-        // Deterministic letter avatar; PNG, no auth, always returns 200.
-        return 'https://ui-avatars.com/api/?'
-            . http_build_query([
-                'name'       => $ticker,
-                'background' => '1f2937',
-                'color'      => 'ffffff',
-                'bold'       => 'true',
-                'format'     => 'png',
-                'size'       => 128,
-            ]);
+        if (isset($result['data']['ticker'])) {
+            $result['data']['public_png_logo_url'] = $this->logoForTicker($result['data']['ticker']);
+            return $result;
+        }
+
+        foreach ($result['data'] as $i => $row) {
+            if (is_array($row) && isset($row['ticker'])) {
+                $result['data'][$i]['public_png_logo_url'] = $this->logoForTicker($row['ticker']);
+            }
+        }
+        return $result;
     }
 
     /**

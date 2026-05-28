@@ -2,12 +2,17 @@
 
 use App\Http\Controllers\Front\CapitalInstrumentController;
 use App\Http\Controllers\Front\HomeController;
+use App\Http\Controllers\Front\LogoController;
 use App\Http\Controllers\Front\SectorController;
 use App\Http\Controllers\Front\SelfTradingController;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 
 
+
+Route::get('img/stock-logo/{ticker}.png', [LogoController::class, 'stock'])
+    ->where('ticker', '[A-Za-z0-9\-]+')
+    ->name('img.stock-logo');
 
 Route::get('/', [HomeController::class, 'index'])->name('home');
 Route::get('investment-plans', [HomeController::class, 'investmentPlans'])->name('investment-plans');
