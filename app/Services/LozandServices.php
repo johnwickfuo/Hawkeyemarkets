@@ -26,6 +26,17 @@ class LozandServices
     protected string $twelveDataUrl;
     protected string $twelveDataKey;
 
+    // ── Twelve Data rate-limit and cache tuning ────────────────────────────
+    // Defaults assume the free "Basic 8" plan (8 credits/min, 800/day) with
+    // a safety margin. Override via env to match a paid plan.
+    protected int $tdPerMinuteLimit;   // max API credits per minute
+    protected int $tdPerDayLimit;      // max API credits per UTC day
+    protected int $tdChunkSize;        // max symbols per single /quote call
+    protected int $tdBatchTtl;         // seconds — market_stocks / market_etfs
+    protected int $tdSingleTtl;        // seconds — stock_ticker_X, etf_ticker_X
+    protected int $tdForexTtl;         // seconds — forex_tickers / forex_ticker_X
+    protected int $tdStaleTtl;         // seconds — persistent per-symbol fallback
+
     // ── Curated instrument lists ───────────────────────────────────────────
     protected array $marginSymbols = [
         'BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT',
@@ -56,6 +67,19 @@ class LozandServices
     {
         $this->twelveDataUrl = config('services.twelvedata.base_url', 'https://api.twelvedata.com');
         $this->twelveDataKey = config('services.twelvedata.api_key', '');
+
+        // Leave one credit of headroom under the per-minute hard cap so concurrent
+        // requests can't push us over.
+        $this->tdPerMinuteLimit = max(1, (int) config('services.twelvedata.per_minute_limit', 7));
+        $this->tdPerDayLimit    = max(1, (int) config('services.twelvedata.per_day_limit', 750));
+        $this->tdChunkSize      = max(1, min(
+            (int) config('services.twelvedata.chunk_size', 7),
+            $this->tdPerMinuteLimit
+        ));
+        $this->tdBatchTtl  = (int) config('services.twelvedata.batch_ttl', 21600);   // 6h
+        $this->tdSingleTtl = (int) config('services.twelvedata.single_ttl', 3600);   //  1h
+        $this->tdForexTtl  = (int) config('services.twelvedata.forex_ttl', 900);     // 15m
+        $this->tdStaleTtl  = (int) config('services.twelvedata.stale_ttl', 604800);  //  7d
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -67,15 +91,7 @@ class LozandServices
      */
     public function marketStocks(): array
     {
-        if (Cache::has('market_stocks')) {
-            return Cache::get('market_stocks');
-        }
-
-        $result = $this->fetchTwelveDataBatch($this->stockSymbols);
-        if ($result['status'] === 'success') {
-            Cache::put('market_stocks', $result, now()->addHours(6));
-        }
-        return $result;
+        return $this->cachedBatchQuote('market_stocks', $this->stockSymbols);
     }
 
     /**
@@ -83,16 +99,18 @@ class LozandServices
      */
     public function ticker(string $ticker): array
     {
-        $cacheKey = 'stock_ticker_' . strtoupper($ticker);
-        if (Cache::has($cacheKey)) {
-            return Cache::get($cacheKey);
-        }
+        return $this->cachedSingleQuote(strtoupper($ticker), 'stock_ticker_', 'market_stocks');
+    }
 
-        $result = $this->fetchTwelveDataSingle(strtoupper($ticker));
-        if ($result['status'] === 'success') {
-            Cache::put($cacheKey, $result, now()->addMinutes(15));
-        }
-        return $result;
+    /**
+     * Preload (warm) a set of stock quotes via a single chunked batch call.
+     * Useful from cron jobs that iterate user holdings to avoid one API call
+     * per ticker — each batch chunk costs N credits but only counts as one
+     * HTTP request in the per-minute budget window.
+     */
+    public function preloadStockQuotes(array $tickers): void
+    {
+        $this->warmSingleQuotes($tickers, 'stock_ticker_');
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -104,15 +122,7 @@ class LozandServices
      */
     public function marketEtfs(): array
     {
-        if (Cache::has('market_etfs')) {
-            return Cache::get('market_etfs');
-        }
-
-        $result = $this->fetchTwelveDataBatch($this->etfSymbols);
-        if ($result['status'] === 'success') {
-            Cache::put('market_etfs', $result, now()->addHours(6));
-        }
-        return $result;
+        return $this->cachedBatchQuote('market_etfs', $this->etfSymbols);
     }
 
     /**
@@ -120,16 +130,15 @@ class LozandServices
      */
     public function etfTicker(string $ticker): array
     {
-        $cacheKey = 'etf_ticker_' . strtoupper($ticker);
-        if (Cache::has($cacheKey)) {
-            return Cache::get($cacheKey);
-        }
+        return $this->cachedSingleQuote(strtoupper($ticker), 'etf_ticker_', 'market_etfs');
+    }
 
-        $result = $this->fetchTwelveDataSingle(strtoupper($ticker));
-        if ($result['status'] === 'success') {
-            Cache::put($cacheKey, $result, now()->addMinutes(15));
-        }
-        return $result;
+    /**
+     * Preload (warm) a set of ETF quotes via a single chunked batch call.
+     */
+    public function preloadEtfQuotes(array $tickers): void
+    {
+        $this->warmSingleQuotes($tickers, 'etf_ticker_');
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -142,50 +151,64 @@ class LozandServices
     public function forexTickers(): array
     {
         $cacheKey = 'forex_tickers';
+
         if (Cache::has($cacheKey)) {
             return Cache::get($cacheKey);
         }
 
         if (empty($this->twelveDataKey)) {
-            return ['status' => 'error', 'message' => 'Twelve Data API key not configured.', 'code' => 500];
+            return $this->assembleForexFromFallback($this->forexPairs)
+                ?? $this->friendlyMarketError();
+        }
+
+        $lock = Cache::lock('lock_' . $cacheKey, 60);
+        if (!$lock->get()) {
+            // Another worker is already fetching. Wait briefly for it to populate
+            // the cache; if not, fall back to stale per-symbol data.
+            usleep(500_000);
+            if (Cache::has($cacheKey)) {
+                return Cache::get($cacheKey);
+            }
+            return $this->assembleForexFromFallback($this->forexPairs)
+                ?? $this->friendlyMarketError();
         }
 
         try {
-            $symbols = implode(',', $this->forexPairs);
-            $response = Http::timeout(30)->get($this->twelveDataUrl . '/quote', [
-                'symbol'   => $symbols,
-                'apikey'   => $this->twelveDataKey,
-            ]);
-
-            if ($response->successful()) {
-                $json = $response->json();
-
-                // When a single symbol is requested Twelve Data returns the object directly,
-                // for multiple symbols it returns an associative array keyed by symbol.
-                if (isset($json['symbol'])) {
-                    $json = [$json['symbol'] => $json];
-                }
-
-                $data = [];
-                foreach ($json as $symbol => $quote) {
-                    if (!isset($quote['close'])) {
-                        continue;
-                    }
-                    $data[] = $this->normalizeForexQuote($quote);
-                }
-
-                $result = ['status' => 'success', 'data' => $data, 'code' => 200];
-                Cache::put($cacheKey, $result, now()->addMinutes(5));
-                return $result;
+            // Re-check inside the lock — another worker may have just populated it.
+            if (Cache::has($cacheKey)) {
+                return Cache::get($cacheKey);
             }
 
-            $msg = $response->json()['message'] ?? 'Request failed with status: ' . $response->status();
-            Log::error('[LozandServices] forexTickers: ' . $response->body());
-            return ['status' => 'error', 'message' => $msg, 'code' => $response->status()];
+            $fetched = $this->quoteTwelveDataForex($this->forexPairs);
 
-        } catch (\Exception $e) {
-            Log::error('[LozandServices] forexTickers: ' . $e->getMessage());
-            return ['status' => 'error', 'message' => $e->getMessage(), 'code' => 500];
+            // Merge fresh quotes with any per-symbol stale fallback to fill gaps.
+            $data    = [];
+            $partial = false;
+            foreach ($this->forexPairs as $pair) {
+                $upper = strtoupper($pair);
+                if (isset($fetched[$upper])) {
+                    $data[] = $fetched[$upper];
+                    continue;
+                }
+                $fb = Cache::get('td_forex_fallback_' . str_replace('/', '_', $upper));
+                if ($fb) {
+                    $data[] = $fb;
+                    $partial = true;
+                }
+            }
+
+            if (empty($data)) {
+                return $this->friendlyMarketError();
+            }
+
+            $result = ['status' => 'success', 'data' => $data, 'code' => 200];
+            // Cache for a shorter time if we served partial data so we retry sooner.
+            $ttl = $partial ? min(120, $this->tdForexTtl) : $this->tdForexTtl;
+            Cache::put($cacheKey, $result, now()->addSeconds($ttl));
+            return $result;
+
+        } finally {
+            optional($lock)->release();
         }
     }
 
@@ -195,40 +218,53 @@ class LozandServices
     public function forexTicker(string $ticker): array
     {
         // Accept both EUR_USD and EUR/USD formats
-        $ticker    = str_replace('_', '/', strtoupper($ticker));
-        $cacheKey  = 'forex_ticker_' . str_replace('/', '_', $ticker);
+        $ticker   = str_replace('_', '/', strtoupper($ticker));
+        $cacheKey = 'forex_ticker_' . str_replace('/', '_', $ticker);
+        $fbKey    = 'td_forex_fallback_' . str_replace('/', '_', $ticker);
 
         if (Cache::has($cacheKey)) {
             return Cache::get($cacheKey);
         }
 
-        if (empty($this->twelveDataKey)) {
-            return ['status' => 'error', 'message' => 'Twelve Data API key not configured.', 'code' => 500];
-        }
-
-        try {
-            $response = Http::timeout(30)->get($this->twelveDataUrl . '/quote', [
-                'symbol' => $ticker,
-                'apikey' => $this->twelveDataKey,
-            ]);
-
-            if ($response->successful()) {
-                $quote = $response->json();
-                if (isset($quote['close'])) {
-                    $result = ['status' => 'success', 'data' => $this->normalizeForexQuote($quote), 'code' => 200];
-                    Cache::put($cacheKey, $result, now()->addMinutes(5));
-                    return $result;
+        // Reuse the batch cache when it's already warm — costs zero API credits.
+        if (Cache::has('forex_tickers')) {
+            $batch = Cache::get('forex_tickers');
+            if (($batch['status'] ?? null) === 'success') {
+                foreach (($batch['data'] ?? []) as $row) {
+                    if (strtoupper($row['s'] ?? '') === $ticker) {
+                        $result = ['status' => 'success', 'data' => $row, 'code' => 200];
+                        Cache::put($cacheKey, $result, now()->addSeconds($this->tdForexTtl));
+                        return $result;
+                    }
                 }
             }
-
-            $msg = $response->json()['message'] ?? 'Request failed with status: ' . $response->status();
-            Log::error('[LozandServices] forexTicker: ' . $response->body());
-            return ['status' => 'error', 'message' => $msg, 'code' => $response->status()];
-
-        } catch (\Exception $e) {
-            Log::error('[LozandServices] forexTicker: ' . $e->getMessage());
-            return ['status' => 'error', 'message' => $e->getMessage(), 'code' => 500];
         }
+
+        if (!empty($this->twelveDataKey)) {
+            $lock = Cache::lock('lock_' . $cacheKey, 30);
+            if ($lock->get()) {
+                try {
+                    if (Cache::has($cacheKey)) {
+                        return Cache::get($cacheKey);
+                    }
+                    $fetched = $this->quoteTwelveDataForex([$ticker]);
+                    if (isset($fetched[$ticker])) {
+                        $result = ['status' => 'success', 'data' => $fetched[$ticker], 'code' => 200];
+                        Cache::put($cacheKey, $result, now()->addSeconds($this->tdForexTtl));
+                        return $result;
+                    }
+                } finally {
+                    optional($lock)->release();
+                }
+            }
+        }
+
+        $fb = Cache::get($fbKey);
+        if ($fb) {
+            return ['status' => 'success', 'data' => $fb, 'code' => 200, 'stale' => true];
+        }
+
+        return $this->friendlyMarketError();
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -612,88 +648,343 @@ class LozandServices
     // ══════════════════════════════════════════════════════════════════════
 
     /**
-     * Fetch a batch of symbols from Twelve Data and normalize each to the
-     * standard stock/ETF structure expected by controllers and views.
+     * Quote a list of stock/ETF symbols from Twelve Data, chunked to respect
+     * the per-minute credit budget. Returns a map of upper-case ticker => quote
+     * for symbols that were successfully fetched. Each successful symbol is
+     * also written to a long-lived per-symbol fallback cache so subsequent
+     * requests can serve stale data when the budget is exhausted.
      */
-    private function fetchTwelveDataBatch(array $symbols): array
+    private function quoteTwelveData(array $symbols): array
     {
+        if (empty($this->twelveDataKey) || empty($symbols)) {
+            return [];
+        }
+
+        $symbols = array_values(array_unique(array_map('strtoupper', $symbols)));
+        $results = [];
+
+        foreach (array_chunk($symbols, $this->tdChunkSize) as $chunk) {
+            $cost = count($chunk);
+
+            if (!$this->reserveTwelveDataCredits($cost)) {
+                Log::warning('[LozandServices] Twelve Data budget exhausted (need ' . $cost . ' credits); serving stale data for remaining symbols');
+                break;
+            }
+
+            try {
+                $response = Http::timeout(30)->get($this->twelveDataUrl . '/quote', [
+                    'symbol' => implode(',', $chunk),
+                    'apikey' => $this->twelveDataKey,
+                ]);
+            } catch (\Exception $e) {
+                Log::error('[LozandServices] quoteTwelveData: ' . $e->getMessage());
+                continue;
+            }
+
+            if (!$response->successful()) {
+                // 429 = rate-limited despite our local budget — refund the
+                // reservation by NOT recording the credits we just spent.
+                // We can't actually un-spend on the upstream side, but we can
+                // log so operators see the divergence.
+                Log::error('[LozandServices] quoteTwelveData (' . implode(',', $chunk) . '): ' . $response->body());
+                continue;
+            }
+
+            $json = $response->json();
+            // Single-symbol responses are returned as a plain object; multi-symbol
+            // responses are keyed by symbol.
+            if (isset($json['symbol'])) {
+                $json = [$json['symbol'] => $json];
+            }
+
+            foreach ($json as $key => $quote) {
+                if (!is_array($quote) || !isset($quote['close'])) {
+                    continue; // skip error entries / per-symbol failures
+                }
+                $normalized = $this->normalizeTwelveDataQuote($quote);
+                $sym        = strtoupper($normalized['ticker'] ?? $key);
+                $results[$sym] = $normalized;
+                Cache::put('td_fallback_' . $sym, $normalized, $this->tdStaleTtl);
+            }
+        }
+
+        return $results;
+    }
+
+    /**
+     * Quote a list of forex pairs from Twelve Data, chunked to respect the
+     * per-minute credit budget. Returns a map of UPPER pair (e.g. "EUR/USD") =>
+     * normalized forex quote. Successful pairs are also stored in a long-lived
+     * per-symbol fallback cache (keyed with underscores, e.g. EUR_USD).
+     */
+    private function quoteTwelveDataForex(array $pairs): array
+    {
+        if (empty($this->twelveDataKey) || empty($pairs)) {
+            return [];
+        }
+
+        $pairs   = array_values(array_unique(array_map(fn($p) => strtoupper(str_replace('_', '/', $p)), $pairs)));
+        $results = [];
+
+        foreach (array_chunk($pairs, $this->tdChunkSize) as $chunk) {
+            $cost = count($chunk);
+
+            if (!$this->reserveTwelveDataCredits($cost)) {
+                Log::warning('[LozandServices] Twelve Data budget exhausted (forex, need ' . $cost . ')');
+                break;
+            }
+
+            try {
+                $response = Http::timeout(30)->get($this->twelveDataUrl . '/quote', [
+                    'symbol' => implode(',', $chunk),
+                    'apikey' => $this->twelveDataKey,
+                ]);
+            } catch (\Exception $e) {
+                Log::error('[LozandServices] quoteTwelveDataForex: ' . $e->getMessage());
+                continue;
+            }
+
+            if (!$response->successful()) {
+                Log::error('[LozandServices] quoteTwelveDataForex (' . implode(',', $chunk) . '): ' . $response->body());
+                continue;
+            }
+
+            $json = $response->json();
+            if (isset($json['symbol'])) {
+                $json = [$json['symbol'] => $json];
+            }
+
+            foreach ($json as $key => $quote) {
+                if (!is_array($quote) || !isset($quote['close'])) {
+                    continue;
+                }
+                $normalized = $this->normalizeForexQuote($quote);
+                $sym        = strtoupper($normalized['s'] ?? $key);
+                $results[$sym] = $normalized;
+                Cache::put('td_forex_fallback_' . str_replace('/', '_', $sym), $normalized, $this->tdStaleTtl);
+            }
+        }
+
+        return $results;
+    }
+
+    /**
+     * Reserve credits against the per-minute and per-day budgets. Returns true
+     * if the reservation succeeded; false if either budget would be exceeded.
+     *
+     * Best-effort under concurrency: there is a small race between read and
+     * increment, but the safety margin baked into the limits absorbs it.
+     */
+    private function reserveTwelveDataCredits(int $needed): bool
+    {
+        if ($needed <= 0) {
+            return true;
+        }
+
+        $minuteKey = 'twelvedata_credits_minute_' . floor(time() / 60);
+        $dayKey    = 'twelvedata_credits_day_' . gmdate('Ymd');
+
+        $minuteUsed = (int) Cache::get($minuteKey, 0);
+        if ($minuteUsed + $needed > $this->tdPerMinuteLimit) {
+            return false;
+        }
+
+        $dayUsed = (int) Cache::get($dayKey, 0);
+        if ($dayUsed + $needed > $this->tdPerDayLimit) {
+            return false;
+        }
+
+        // Ensure both counters exist with a TTL before incrementing — Laravel's
+        // Cache::increment requires a pre-existing key on some drivers.
+        Cache::add($minuteKey, 0, 90);     //  90s covers the full minute window
+        Cache::add($dayKey, 0, 90000);     //  ~25h covers the UTC day window
+        Cache::increment($minuteKey, $needed);
+        Cache::increment($dayKey, $needed);
+        return true;
+    }
+
+    /**
+     * Fetch a batch of symbols with cache, stampede lock, stale fallback and
+     * partial-result handling. Used by marketStocks() and marketEtfs().
+     */
+    private function cachedBatchQuote(string $cacheKey, array $symbols): array
+    {
+        if (Cache::has($cacheKey)) {
+            return Cache::get($cacheKey);
+        }
+
         if (empty($this->twelveDataKey)) {
-            return ['status' => 'error', 'message' => 'Twelve Data API key not configured.', 'code' => 500];
+            return $this->assembleStaleBatch($symbols) ?? $this->friendlyMarketError();
+        }
+
+        $lock = Cache::lock('lock_' . $cacheKey, 60);
+        if (!$lock->get()) {
+            usleep(500_000);
+            if (Cache::has($cacheKey)) {
+                return Cache::get($cacheKey);
+            }
+            return $this->assembleStaleBatch($symbols) ?? $this->friendlyMarketError();
         }
 
         try {
-            $symbolList = implode(',', $symbols);
-            $response   = Http::timeout(30)->get($this->twelveDataUrl . '/quote', [
-                'symbol' => $symbolList,
-                'apikey' => $this->twelveDataKey,
-            ]);
-
-            if ($response->successful()) {
-                $json = $response->json();
-
-                // When exactly one symbol is queried the response is a plain object
-                if (isset($json['symbol'])) {
-                    $json = [$json['symbol'] => $json];
-                }
-
-                $data = [];
-                foreach ($json as $symbol => $quote) {
-                    if (!isset($quote['close'])) {
-                        continue; // skip error entries (e.g. "status":"error")
-                    }
-                    $data[] = $this->normalizeTwelveDataQuote($quote);
-                }
-
-                return ['status' => 'success', 'data' => $data, 'code' => 200];
+            if (Cache::has($cacheKey)) {
+                return Cache::get($cacheKey);
             }
 
-            $msg = $response->json()['message'] ?? 'Request failed with status: ' . $response->status();
-            Log::error('[LozandServices] fetchTwelveDataBatch: ' . $response->body());
-            return ['status' => 'error', 'message' => $msg, 'code' => $response->status()];
+            $fetched = $this->quoteTwelveData($symbols);
 
-        } catch (\Exception $e) {
-            Log::error('[LozandServices] fetchTwelveDataBatch: ' . $e->getMessage());
-            return ['status' => 'error', 'message' => $e->getMessage(), 'code' => 500];
+            // Merge fresh + per-symbol fallback to fill any gaps.
+            $data    = [];
+            $partial = false;
+            foreach ($symbols as $sym) {
+                $upper = strtoupper($sym);
+                if (isset($fetched[$upper])) {
+                    $data[] = $fetched[$upper];
+                    continue;
+                }
+                $fb = Cache::get('td_fallback_' . $upper);
+                if ($fb) {
+                    $data[] = $fb;
+                    $partial = true;
+                }
+            }
+
+            if (empty($data)) {
+                return $this->friendlyMarketError();
+            }
+
+            $result = ['status' => 'success', 'data' => $data, 'code' => 200];
+            $ttl    = $partial ? min(300, $this->tdBatchTtl) : $this->tdBatchTtl;
+            Cache::put($cacheKey, $result, now()->addSeconds($ttl));
+            return $result;
+        } finally {
+            optional($lock)->release();
         }
     }
 
     /**
-     * Fetch a single symbol from Twelve Data.
+     * Fetch a single stock/ETF quote, preferring the batch cache to save a
+     * credit, and falling back to long-lived stale data on API failure.
      */
-    private function fetchTwelveDataSingle(string $symbol): array
+    private function cachedSingleQuote(string $ticker, string $cachePrefix, ?string $batchCacheKey): array
     {
-        if (empty($this->twelveDataKey)) {
-            return ['status' => 'error', 'message' => 'Twelve Data API key not configured.', 'code' => 500];
+        $cacheKey = $cachePrefix . $ticker;
+
+        if (Cache::has($cacheKey)) {
+            return Cache::get($cacheKey);
         }
 
-        try {
-            $response = Http::timeout(30)->get($this->twelveDataUrl . '/quote', [
-                'symbol' => $symbol,
-                'apikey' => $this->twelveDataKey,
-            ]);
-
-            if ($response->successful()) {
-                $quote = $response->json();
-                if (isset($quote['close'])) {
-                    return [
-                        'status' => 'success',
-                        'data'   => $this->normalizeTwelveDataQuote($quote),
-                        'code'   => 200,
-                    ];
+        // Reuse the batch cache when warm — zero API cost.
+        if ($batchCacheKey && Cache::has($batchCacheKey)) {
+            $batch = Cache::get($batchCacheKey);
+            if (($batch['status'] ?? null) === 'success') {
+                foreach (($batch['data'] ?? []) as $row) {
+                    if (strtoupper($row['ticker'] ?? '') === $ticker) {
+                        $result = ['status' => 'success', 'data' => $row, 'code' => 200];
+                        Cache::put($cacheKey, $result, now()->addSeconds($this->tdSingleTtl));
+                        return $result;
+                    }
                 }
-                // Twelve Data returns status=error inside a 200 response for invalid symbols
-                $msg = $quote['message'] ?? 'Symbol not found.';
-                return ['status' => 'error', 'message' => $msg, 'code' => 404];
             }
-
-            $msg = $response->json()['message'] ?? 'Request failed with status: ' . $response->status();
-            Log::error('[LozandServices] fetchTwelveDataSingle (' . $symbol . '): ' . $response->body());
-            return ['status' => 'error', 'message' => $msg, 'code' => $response->status()];
-
-        } catch (\Exception $e) {
-            Log::error('[LozandServices] fetchTwelveDataSingle: ' . $e->getMessage());
-            return ['status' => 'error', 'message' => $e->getMessage(), 'code' => 500];
         }
+
+        if (!empty($this->twelveDataKey)) {
+            $lock = Cache::lock('lock_' . $cacheKey, 30);
+            if ($lock->get()) {
+                try {
+                    if (Cache::has($cacheKey)) {
+                        return Cache::get($cacheKey);
+                    }
+                    $fetched = $this->quoteTwelveData([$ticker]);
+                    if (isset($fetched[$ticker])) {
+                        $result = ['status' => 'success', 'data' => $fetched[$ticker], 'code' => 200];
+                        Cache::put($cacheKey, $result, now()->addSeconds($this->tdSingleTtl));
+                        return $result;
+                    }
+                } finally {
+                    optional($lock)->release();
+                }
+            }
+        }
+
+        // Last resort: persistent per-symbol stale fallback.
+        $fb = Cache::get('td_fallback_' . $ticker);
+        if ($fb) {
+            return ['status' => 'success', 'data' => $fb, 'code' => 200, 'stale' => true];
+        }
+
+        return $this->friendlyMarketError();
+    }
+
+    /**
+     * Warm individual stock/ETF caches by batch-fetching a list of tickers in a
+     * single chunked call. Used by cron jobs (e.g. UpdateStockPnl) that would
+     * otherwise issue one single-symbol request per holding.
+     */
+    private function warmSingleQuotes(array $tickers, string $cachePrefix): void
+    {
+        $tickers = array_values(array_unique(array_map('strtoupper', $tickers)));
+        // Skip any ticker whose fresh cache is already populated.
+        $cold = array_filter($tickers, fn($t) => !Cache::has($cachePrefix . $t));
+        if (empty($cold)) {
+            return;
+        }
+
+        $fetched = $this->quoteTwelveData($cold);
+        foreach ($fetched as $ticker => $quote) {
+            Cache::put($cachePrefix . $ticker, ['status' => 'success', 'data' => $quote, 'code' => 200], now()->addSeconds($this->tdSingleTtl));
+        }
+    }
+
+    /**
+     * Try to reconstruct a batch response entirely from the persistent stale
+     * fallback cache. Returns null if no symbols have any cached data.
+     */
+    private function assembleStaleBatch(array $symbols): ?array
+    {
+        $data = [];
+        foreach ($symbols as $sym) {
+            $fb = Cache::get('td_fallback_' . strtoupper($sym));
+            if ($fb) {
+                $data[] = $fb;
+            }
+        }
+        if (empty($data)) {
+            return null;
+        }
+        return ['status' => 'success', 'data' => $data, 'code' => 200, 'stale' => true];
+    }
+
+    /**
+     * Same as assembleStaleBatch() but for forex pairs.
+     */
+    private function assembleForexFromFallback(array $pairs): ?array
+    {
+        $data = [];
+        foreach ($pairs as $pair) {
+            $key = 'td_forex_fallback_' . strtoupper(str_replace('/', '_', $pair));
+            $fb  = Cache::get($key);
+            if ($fb) {
+                $data[] = $fb;
+            }
+        }
+        if (empty($data)) {
+            return null;
+        }
+        return ['status' => 'success', 'data' => $data, 'code' => 200, 'stale' => true];
+    }
+
+    /**
+     * User-facing error response when no fresh or stale data can be returned.
+     * Never surfaces the upstream "ran out of credits" wording to end users.
+     */
+    private function friendlyMarketError(): array
+    {
+        return [
+            'status'  => 'error',
+            'message' => __('Market data is temporarily unavailable. Please try again in a few minutes.'),
+            'code'    => 503,
+        ];
     }
 
     /**

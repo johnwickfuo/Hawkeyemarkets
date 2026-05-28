@@ -50,6 +50,20 @@ return [
     'twelvedata' => [
         'base_url' => env('TWELVE_DATA_API_URL', 'https://api.twelvedata.com'),
         'api_key'  => env('TWELVE_DATA_API_KEY'),
+
+        // Rate-limit guard — set one below your plan's hard cap so concurrent
+        // requests can't push you over. Defaults assume the free Basic 8 plan
+        // (8 credits/min, 800/day) with a small safety margin.
+        'per_minute_limit' => (int) env('TWELVE_DATA_PER_MINUTE_LIMIT', 7),
+        'per_day_limit'    => (int) env('TWELVE_DATA_PER_DAY_LIMIT', 750),
+        'chunk_size'       => (int) env('TWELVE_DATA_CHUNK_SIZE', 7),
+
+        // Cache TTLs (seconds). Tuned so the daily budget covers the cron jobs
+        // plus a healthy margin for user-driven detail-page lookups.
+        'batch_ttl'  => (int) env('TWELVE_DATA_BATCH_TTL', 21600),   // 6h   — market_stocks / market_etfs
+        'single_ttl' => (int) env('TWELVE_DATA_SINGLE_TTL', 3600),   // 1h   — per-ticker pages
+        'forex_ttl'  => (int) env('TWELVE_DATA_FOREX_TTL', 900),     // 15m  — forex batch
+        'stale_ttl'  => (int) env('TWELVE_DATA_STALE_TTL', 604800),  // 7d   — per-symbol fallback
     ],
 
     'google' => [

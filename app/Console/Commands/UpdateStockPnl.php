@@ -31,13 +31,20 @@ class UpdateStockPnl extends Command
      */
     public function handle()
     {
+        $lozand = new LozandServices();
 
+        // Warm per-ticker caches in a single chunked batch so we don't burn one
+        // API credit per holding (the previous loop hit the per-minute limit
+        // quickly on accounts with more than a handful of unique tickers).
+        $stockTickers = StockHolding::query()->distinct()->pluck('ticker')->filter()->all();
+        if (!empty($stockTickers)) {
+            $lozand->preloadStockQuotes($stockTickers);
+        }
 
-        StockHolding::chunkById(20, function (\Illuminate\Database\Eloquent\Collection $holdings) {
+        StockHolding::chunkById(20, function (\Illuminate\Database\Eloquent\Collection $holdings) use ($lozand) {
             foreach ($holdings as $holding) {
                 /** @var StockHolding $holding */
                 try {
-                    $lozand = new LozandServices();
                     $ticker_data = $lozand->ticker($holding->ticker);
                     if ($ticker_data['status'] == 'success') {
                         $current_price = $ticker_data['data']['current_price'];
@@ -54,12 +61,15 @@ class UpdateStockPnl extends Command
             }
         });
 
+        $etfTickers = EtfHolding::query()->distinct()->pluck('ticker')->filter()->all();
+        if (!empty($etfTickers)) {
+            $lozand->preloadEtfQuotes($etfTickers);
+        }
 
-        EtfHolding::chunkById(20, function (\Illuminate\Database\Eloquent\Collection $holdings) {
+        EtfHolding::chunkById(20, function (\Illuminate\Database\Eloquent\Collection $holdings) use ($lozand) {
             foreach ($holdings as $holding) {
                 /** @var EtfHolding $holding */
                 try {
-                    $lozand = new LozandServices();
                     $ticker_data = $lozand->etfTicker($holding->ticker);
                     if ($ticker_data['status'] == 'success') {
                         $current_price = $ticker_data['data']['current_price'];
