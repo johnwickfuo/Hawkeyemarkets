@@ -1,0 +1,13 @@
+- Check storage\untranslated\to-translate.json for all words and sentences that needs translating
+- Translate all to all lanaguages
+- do not check if keys exist, just add them, i have a function for fixing duplicate keys, so don't working about deuplicate keys
+- do not translate non english characters
+- get all langauges from config('languages')
+- create a php file 'translator.php' in storage_path('untranslated')
+- inside translator.php create an array of lanaguages including "en", with each language holding all the translation for that language.
+- inside the same php file you created, write a foreach loop that will loop through all the languages and translate the to-translate.json file to that language.
+- use [$key => $value] syntax so that stored translation will be overwritten or new one inserted.
+- after translation, delete the created_php file
+- some words or sentences may require transliteration instead of translation
+-If the the senteences to be tranlated are more than 70, batch them in 70s and translate them in batches.
+- Reset the json for to-translate after you are done.

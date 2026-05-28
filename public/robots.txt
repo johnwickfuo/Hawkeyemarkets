@@ -1,0 +1,8 @@
+User-agent: *
+Disallow: /admin
+Disallow: /user
+Disallow: /api
+Disallow: /utils
+Disallow: /storage
+
+Sitemap: https://hawkeyemarkets.com/sitemap.xml

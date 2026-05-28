@@ -1,0 +1,17 @@
+{
+  "resources/views/templates/bento/css/app.css": {
+    "file": "assets/app-jxiEUPrd.css",
+    "src": "resources/views/templates/bento/css/app.css",
+    "isEntry": true,
+    "name": "app",
+    "names": [
+      "app.css"
+    ]
+  },
+  "resources/views/templates/bento/js/app.js": {
+    "file": "assets/app-JqiszhNM.js",
+    "name": "app",
+    "src": "resources/views/templates/bento/js/app.js",
+    "isEntry": true
+  }
+}

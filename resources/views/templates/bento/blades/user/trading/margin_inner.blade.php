@@ -1,0 +1,695 @@
+@if ($last_error_message)
+    <div
+        class="glass-panel rounded-xl md:rounded-2xl px-4 py-3 mb-4 md:mb-6 border-red-500/30 bg-red-500/10 text-red-400 text-sm flex items-center gap-3">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="8" x2="12" y2="12" />
+            <line x1="12" y1="16" x2="12.01" y2="16" />
+        </svg>
+        <span>{{ $last_error_message }}</span>
+    </div>
+@endif
+
+@if (!$last_error_message || !empty($current_ticker_info))
+    <div id="topPanelStats" class="glass-panel rounded-xl md:rounded-2xl px-3 md:px-4 py-3 mb-4 md:mb-6 relative z-50">
+        <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div class="flex items-center gap-2 md:gap-3 flex-wrap">
+                <div
+                    class="w-8 h-8 md:w-9 md:h-9 rounded-xl grid place-items-center bg-accent-primary/15 border border-accent-primary/30">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
+                        fill="none" class="text-accent-primary w-5 h-5 md:w-6 md:h-6" stroke="currentColor"
+                        stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 2 2 7l10 5 10-5-10-5Z" />
+                        <path d="m2 17 10 5 10-5" />
+                        <path d="m2 12 10 5 10-5" />
+                    </svg>
+                </div>
+
+                <div class="flex items-center gap-2 relative">
+                    <button id="pairDropdownBtn"
+                        class="flex items-center gap-1.5 hover:bg-white/5 pr-2 pl-1 py-1 rounded-lg transition-colors group">
+                        <div class="font-semibold tracking-tight text-white text-sm md:text-base">
+                            {{ $current_ticker }}</div>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+                            fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                            stroke-linejoin="round" class="text-white/50 group-hover:text-white transition-colors">
+                            <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                    </button>
+
+                    <div id="pairDropdownMenu"
+                        class="absolute top-full left-0 mt-2 w-56 rounded-xl border border-white/10 shadow-2xl shadow-black/50 overflow-hidden hidden z-50 bg-[#131722]">
+                        <div class="px-3 py-2 border-b border-white/10">
+                            <input type="text" placeholder="{{ __('Search') }}" id="pairSearch"
+                                class="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-base text-white outline-none focus:border-accent-primary/50 transition-colors">
+                        </div>
+                        <div class="max-h-[300px] overflow-y-auto custom-scrollbar">
+                            @foreach ($all_margin_tickers as $asset)
+                                <a href="{{ route('user.trading.margin', $asset['ticker']) }}"
+                                    class="pair-item w-full text-left px-4 py-2.5 text-sm text-white/80 hover:bg-white/10 hover:text-white transition-colors flex items-center justify-between group">
+                                    <div class="flex items-center gap-2">
+                                        <span class="font-semibold">{{ $asset['ticker'] }}</span>
+                                        <span
+                                            class="text-xs text-white/40 group-hover:text-white/60">/{{ $current_ticker_info['quote'] }}</span>
+                                    </div>
+                                    @if ($asset['ticker'] == $current_ticker)
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14"
+                                            viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                            stroke-linecap="round" stroke-linejoin="round" class="text-accent-primary">
+                                            <polyline points="20 6 9 17 4 12"></polyline>
+                                        </svg>
+                                    @endif
+                                </a>
+                            @endforeach
+                        </div>
+                    </div>
+
+                    <div class="relative">
+                        <button id="leverageDropdownBtn"
+                            class="text-xs px-2 py-1 rounded-full bg-accent-primary/20 border border-accent-primary/30 text-accent-primary font-bold flex items-center gap-1 hover:bg-accent-primary/30 transition-colors">
+                            <span id="currentLeverageLabel">{{ __('Margin') }} 3x</span>
+                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24"
+                                fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"
+                                stroke-linejoin="round">
+                                <polyline points="6 9 12 15 18 9"></polyline>
+                            </svg>
+                        </button>
+                        <div id="leverageDropdownMenu"
+                            class="absolute top-full left-0 mt-2 w-24 rounded-xl border border-white/10 shadow-2xl shadow-black/50 overflow-hidden hidden z-50 bg-[#131722]">
+                            @foreach ([1, 2, 3, 4, 5] as $lev)
+                                <button
+                                    class="leverage-option w-full text-left px-4 py-2 text-xs text-white/80 hover:bg-white/10 hover:text-white transition-colors"
+                                    data-leverage="{{ $lev }}">
+                                    {{ __('Margin') }} {{ $lev }}x
+                                </button>
+                            @endforeach
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-2 ml-2 md:ml-4">
+                    <div class="text-white/70 text-xs md:text-sm">{{ __('Last') }}</div>
+                    <div class="font-semibold text-white text-sm md:text-base" id="lastPrice">
+                        @php $price = $current_ticker_info['current_price'] ?? 0; @endphp
+                        {{ number_format($price, $price < 1 ? 4 : 2) }}</div>
+                    @php $change = $current_ticker_info['change_1d_percentage'] ?? 0; @endphp
+                    <div
+                        class="text-xs px-2 py-1 rounded-full {{ $change >= 0 ? 'bg-green-500/15 border-green-500/25 text-green-400' : 'bg-red-500/15 border-red-500/25 text-red-400' }} hidden md:block">
+                        {{ $change >= 0 ? '+' : '' }}{{ $change }}%
+                    </div>
+                </div>
+            </div>
+
+
+            <div class="flex items-center gap-2 overflow-x-auto pb-2 -mx-3 px-3 md:mx-0 md:px-0">
+                <div
+                    class="bg-white/5 border border-white/10 rounded-xl px-2.5 md:px-3 py-1.5 md:py-2 flex items-center gap-2 shrink-0">
+                    <span class="text-white/40">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+                            fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                            stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10" />
+                            <polyline points="12 6 12 12 16 14" />
+                        </svg>
+                    </span>
+                    <span class="font-semibold text-white text-xs md:text-sm">{{ __('Open') }}</span>
+                    <span
+                        class="text-white/80 text-xs md:text-sm">{{ $current_ticker_info['open_price'] ?? '0.00' }}</span>
+                </div>
+
+                <div
+                    class="bg-white/5 border border-white/10 rounded-xl px-2.5 md:px-3 py-1.5 md:py-2 flex items-center gap-2 shrink-0">
+                    <span class="text-red-400">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+                            fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                            stroke-linejoin="round">
+                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                            <polyline points="19 12 12 19 5 12"></polyline>
+                        </svg>
+                    </span>
+                    <span class="font-semibold text-white text-xs md:text-sm">{{ __('Low') }}</span>
+                    <span class="text-red-400 text-xs md:text-sm">{{ $current_ticker_info['low'] ?? '0.00' }}</span>
+                </div>
+
+                <div
+                    class="bg-white/5 border border-white/10 rounded-xl px-2.5 md:px-3 py-1.5 md:py-2 flex items-center gap-2 shrink-0">
+                    <span class="text-green-400">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+                            fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                            stroke-linejoin="round">
+                            <line x1="12" y1="19" x2="12" y2="5"></line>
+                            <polyline points="5 12 12 5 19 12"></polyline>
+                        </svg>
+                    </span>
+                    <span class="font-semibold text-white text-xs md:text-sm">{{ __('High') }}</span>
+                    <span
+                        class="text-green-400 text-xs md:text-sm">{{ $current_ticker_info['high'] ?? '0.00' }}</span>
+                </div>
+
+                <div
+                    class="bg-white/5 border border-white/10 rounded-xl px-2.5 md:px-3 py-1.5 md:py-2 flex items-center gap-2 shrink-0">
+                    <span class="text-white/40">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+                            fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                            stroke-linejoin="round">
+                            <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
+                            <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
+                        </svg>
+                    </span>
+                    <span class="font-semibold text-white text-xs md:text-sm">{{ __('Vol') }}</span>
+                    <span
+                        class="text-white/80 text-xs md:text-sm">{{ number_format($current_ticker_info['volume'] ?? 0, 0) }}</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {{-- Main Grid --}}
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 md:gap-5 mb-4 md:mb-6">
+        {{-- Chart Panel --}}
+        <section class="lg:col-span-8 glow-border order-1">
+            <div class="glass-panel rounded-2xl md:rounded-3xl p-3 md:p-4 lg:p-5">
+                {{-- Chart Controls --}}
+                <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-3 md:mb-4">
+                    <div class="flex items-center gap-2">
+                        <span class="text-white/60 text-xs md:text-sm">{{ __('Time') }}</span>
+                        <div class="flex items-center gap-1">
+                            <button data-interval="15"
+                                class="time-btn bg-accent-primary/20 border border-accent-primary/30 rounded-lg md:rounded-xl px-2.5 md:px-3 py-1.5 text-xs md:text-sm text-white">15m</button>
+                            <button data-interval="60"
+                                class="time-btn bg-white/5 border border-white/10 rounded-lg md:rounded-xl px-2.5 md:px-3 py-1.5 text-xs md:text-sm text-white/70 hover:text-white">1h</button>
+                            <button data-interval="240"
+                                class="time-btn bg-white/5 border border-white/10 rounded-lg md:rounded-xl px-2.5 md:px-3 py-1.5 text-xs md:text-sm text-white/70 hover:text-white">4h</button>
+                            <button data-interval="D"
+                                class="time-btn bg-white/5 border border-white/10 rounded-lg md:rounded-xl px-2.5 md:px-3 py-1.5 text-xs md:text-sm text-white/70 hover:text-white">1d</button>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        <span class="text-white/60 text-xs md:text-sm">{{ __('Indicator') }}</span>
+                        <button id="toggleToolbarBtn"
+                            class="bg-white/5 border border-white/10 rounded-lg md:rounded-xl px-2.5 md:px-3 py-1.5 text-xs md:text-sm text-white/70 hover:text-white">{{ __('Show') }}</button>
+                    </div>
+                </div>
+
+                {{-- Chart Area --}}
+                <div
+                    class="relative h-[250px] sm:h-[350px] md:h-[400px] lg:h-[470px] rounded-xl md:rounded-2xl border border-white/10 bg-gradient-to-br from-accent-primary/10 via-transparent to-blue-500/10 overflow-hidden">
+                    {{-- Loader --}}
+                    <div id="chartLoader"
+                        class="absolute inset-0 z-20 flex items-center justify-center bg-[#131722]/50 backdrop-blur-sm">
+                        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-accent-primary"></div>
+                    </div>
+                    {{-- Chart Container --}}
+                    <div id="chartContainer" class="absolute inset-0 z-10 w-full h-full">
+                        {{-- TradingView widget will be injected here --}}
+                    </div>
+                </div>
+
+                <div
+                    class="mt-3 px-3 md:px-4 py-2 md:py-3 flex flex-wrap items-center justify-between text-xs text-white/50 border-t border-white/10 gap-2">
+                    <div class="flex items-center gap-1.5 md:gap-2 flex-wrap">
+
+                    </div>
+                    <div id="chartTime" class="text-xs">12:15:16 UTC</div>
+                </div>
+            </div>
+        </section>
+
+        {{-- Right Column: Place Order --}}
+        <div class="lg:col-span-4 space-y-4 md:space-y-5 order-2">
+            {{-- Place Order --}}
+            <section class="glow-border">
+                <div class="glass-panel rounded-2xl md:rounded-3xl p-3 md:p-4">
+                    <div class="flex items-center justify-between mb-3 md:mb-4">
+                        <h3 class="font-semibold text-white text-sm md:text-base">{{ __('Place Order') }}</h3>
+                    </div>
+
+                    <div>
+                        {{-- Order Type Tabs --}}
+                        <div class="flex gap-1.5 md:gap-2 mb-3">
+                            <button data-type="limit"
+                                class="order-type-tab flex-1 bg-white/5 border border-white/10 rounded-lg md:rounded-xl px-2.5 md:px-3 py-2 text-xs md:text-sm text-white/70 hover:text-white">{{ __('Limit') }}</button>
+                            <button data-type="market"
+                                class="order-type-tab flex-1 bg-accent-primary/20 border border-accent-primary/30 rounded-lg md:rounded-xl px-2.5 md:px-3 py-2 text-xs md:text-sm text-white">{{ __('Market') }}</button>
+                        </div>
+
+                        {{-- Buy/Sell Toggle --}}
+                        <div class="mb-3 md:mb-4 bg-white/5 border border-white/10 rounded-xl md:rounded-2xl p-1 flex">
+                            <button id="btnBuy"
+                                class="flex-1 rounded-lg md:rounded-xl py-2 md:py-2.5 text-xs md:text-sm font-semibold bg-green-500/20 border border-green-500/30 text-green-400">{{ __('Buy/Long') }}</button>
+                            <button id="btnSell"
+                                class="flex-1 rounded-lg md:rounded-xl py-2 md:py-2.5 text-xs md:text-sm font-semibold text-white/70 hover:text-white">{{ __('Sell/Short') }}</button>
+                        </div>
+
+                        {{-- Borrow Mode --}}
+                        <div class="flex items-center gap-2 mb-3 md:mb-4 px-1">
+                            <span class="text-xs text-white/60">{{ __('Mode') }}:</span>
+                            <div class="flex bg-white/5 border border-white/10 rounded-lg p-0.5">
+                                <button data-mode="normal"
+                                    class="margin-mode-btn px-3 py-1 text-[10px] md:text-xs rounded bg-white/10 text-white font-medium shadow-sm border border-white/5">{{ __('Normal') }}</button>
+                                <button data-mode="borrow"
+                                    class="margin-mode-btn px-3 py-1 text-[10px] md:text-xs rounded hover:bg-white/5 text-white/60 transition">{{ __('Auto-Borrow') }}</button>
+                                <button data-mode="repay"
+                                    class="margin-mode-btn px-3 py-1 text-[10px] md:text-xs rounded hover:bg-white/5 text-white/60 transition">{{ __('Repay') }}</button>
+                            </div>
+                        </div>
+
+
+
+                        {{-- Inputs --}}
+                        <div class="space-y-3 mb-4 md:mb-5">
+                            <div id="priceInputGroup" class="hidden">
+                                <label class="text-xs text-white/55 block mb-1.5">{{ __('Price') }}</label>
+                                <div
+                                    class="flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl md:rounded-2xl px-3 py-2.5 md:py-3">
+                                    <input id="inputPrice"
+                                        class="w-full bg-transparent outline-none text-base text-white"
+                                        value="{{ $current_ticker_info['current_price'] ?? '0.00' }}" />
+                                    <span class="text-xs text-white/55">{{ $current_ticker_info['quote'] }}</span>
+                                </div>
+                            </div>
+
+                            <div>
+                                <div class="flex justify-between items-center mb-1.5">
+                                    <label class="text-xs text-white/55">{{ __('Amount') }}
+                                        {{ $current_ticker_info['base'] }}</label>
+                                    <span class="text-xs text-white/55">{{ __('Avail') }}: <span class="text-white"
+                                            id="availableBalanceValue">{{ $add_available }}</span>
+                                        {{ $current_ticker_info['quote'] }}</span>
+                                </div>
+                                <div
+                                    class="flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl md:rounded-2xl px-3 py-2.5 md:py-3">
+                                    <input id="inputAmount"
+                                        class="w-full bg-transparent outline-none text-base text-white"
+                                        placeholder="0.00" />
+                                    <span class="text-xs text-white/55">{{ $current_ticker_info['base'] }}</span>
+                                </div>
+                                <div class="flex gap-2 mt-2">
+                                    @foreach ([10, 25, 50, 75, 100] as $pct)
+                                        <button
+                                            class="pct-btn flex-1 py-1 rounded-lg bg-white/5 border border-white/10 text-[10px] md:text-xs text-white/60 hover:text-white hover:bg-white/10 transition"
+                                            data-pct="{{ $pct }}">{{ $pct }}%</button>
+                                    @endforeach
+                                </div>
+                            </div>
+                        </div>
+
+
+                        {{-- TP / SL --}}
+                        <div class="grid grid-cols-2 gap-3 mb-4">
+                            <div>
+                                <label class="text-xs text-white/55 block mb-1.5">{{ __('Take Profit') }}</label>
+                                <div
+                                    class="flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl md:rounded-2xl px-3 py-2.5">
+                                    <input class="w-full bg-transparent outline-none text-base text-white"
+                                        placeholder="{{ __('Price') }}" />
+                                </div>
+                            </div>
+                            <div>
+                                <label class="text-xs text-white/55 block mb-1.5">{{ __('Stop Loss') }}</label>
+                                <div
+                                    class="flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl md:rounded-2xl px-3 py-2.5">
+                                    <input class="w-full bg-transparent outline-none text-base text-white"
+                                        placeholder="{{ __('Price') }}" />
+                                </div>
+                            </div>
+                        </div>
+
+                        <button id="btnSubmit"
+                            class="w-full py-3 md:py-3.5 rounded-xl md:rounded-2xl font-semibold text-sm md:text-base bg-gradient-to-r from-green-500/70 via-green-400/70 to-emerald-500/70 hover:opacity-90 transition border border-green-500/30 shadow-lg shadow-green-500/10 text-white">
+                            {{ __('Buy Now') }}
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+
+
+
+        </div>
+
+        {{-- Full Width: Order Book & Trades --}}
+        <div class="lg:col-span-12 order-3 grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-5">
+            {{-- Order Book --}}
+            <section class="glow-border" id="orderBookContainer">
+                <div class="glass-panel rounded-2xl md:rounded-3xl p-3 md:p-4">
+                    <div class="flex items-center justify-between mb-3 md:mb-4">
+                        <h3 class="font-semibold text-white text-sm md:text-base">{{ __('Order Book') }}</h3>
+                    </div>
+
+                    <div class="grid grid-cols-3 text-xs text-white/55 mb-2 md:mb-3">
+                        <div>{{ __('Price') }}</div>
+                        <div class="text-center">{{ __('Qty') }}</div>
+                        <div class="text-right">{{ __('Total') }}</div>
+                    </div>
+
+                    <div
+                        class="space-y-1.5 md:space-y-2 max-h-[250px] md:max-h-[350px] lg:max-h-[350px] overflow-auto pr-1">
+                        {{-- Asks --}}
+                        @if (!empty($order_book['asks']))
+                            @foreach (array_reverse($order_book['asks']) as $ask)
+                                <div class="grid grid-cols-3 items-center text-xs md:text-sm order-item cursor-pointer hover:bg-white/5 p-1 rounded transition-all"
+                                    data-price="{{ $ask[0] }}">
+                                    <div class="text-red-400">{{ number_format($ask[0], 2) }}</div>
+                                    <div class="text-center text-white/80">{{ number_format($ask[1], 4) }}
+                                    </div>
+                                    <div class="text-right text-white/70">
+                                        {{ number_format($ask[0] * $ask[1], 2) }}</div>
+                                    <div
+                                        class="col-span-3 h-1.5 md:h-2 rounded bg-red-500/20 mt-1 relative overflow-hidden">
+                                        <div class="absolute inset-y-0 right-0 bg-red-500/35"
+                                            style="width: {{ rand(10, 90) }}%"></div>
+                                    </div>
+                                </div>
+                            @endforeach
+                        @endif
+
+                        {{-- Current Price --}}
+                        <div
+                            class="py-1.5 md:py-2 flex items-center justify-center gap-2 text-sm md:text-base font-bold text-white border-y border-white/5 my-1">
+                            <span>{{ number_format($current_ticker_info['current_price'] ?? 0, 2) }}</span>
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"
+                                viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                stroke-linecap="round" stroke-linejoin="round"
+                                class="{{ ($current_ticker_info['change_1d_percentage'] ?? 0) >= 0 ? 'text-green-400' : 'text-red-400' }}">
+                                @if (($current_ticker_info['change_1d_percentage'] ?? 0) >= 0)
+                                    <line x1="12" y1="19" x2="12" y2="5"></line>
+                                    <polyline points="5 12 12 5 19 12"></polyline>
+                                @else
+                                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                                    <polyline points="19 12 12 19 5 12"></polyline>
+                                @endif
+                            </svg>
+                        </div>
+
+                        {{-- Bids --}}
+                        @if (!empty($order_book['bids']))
+                            @foreach ($order_book['bids'] as $bid)
+                                <div class="grid grid-cols-3 items-center text-xs md:text-sm order-item cursor-pointer hover:bg-white/5 p-1 rounded transition-all"
+                                    data-price="{{ $bid[0] }}">
+                                    <div class="text-green-400">{{ number_format($bid[0], 2) }}</div>
+                                    <div class="text-center text-white/80">{{ number_format($bid[1], 4) }}
+                                    </div>
+                                    <div class="text-right text-white/70">
+                                        {{ number_format($bid[0] * $bid[1], 2) }}</div>
+                                    <div
+                                        class="col-span-3 h-1.5 md:h-2 rounded bg-green-500/20 mt-1 relative overflow-hidden">
+                                        <div class="absolute inset-y-0 left-0 bg-green-500/35"
+                                            style="width: {{ rand(10, 90) }}%"></div>
+                                    </div>
+                                </div>
+                            @endforeach
+                        @endif
+                    </div>
+                </div>
+            </section>
+
+            {{-- Recent Trades --}}
+            <section class="glow-border" id="recentTradesContainer">
+                <div class="glass-panel rounded-2xl md:rounded-3xl p-3 md:p-4">
+                    <div class="flex items-center justify-between mb-3 md:mb-4">
+                        <h3 class="font-semibold text-white text-sm md:text-base">{{ __('Recent Trades') }}</h3>
+                    </div>
+
+                    <div class="grid grid-cols-3 text-xs text-white/55 mb-2 md:mb-3">
+                        <div>{{ __('Price') }}</div>
+                        <div class="text-center">{{ __('Size') }}</div>
+                        <div class="text-right">{{ __('Time') }}</div>
+                    </div>
+
+                    <div
+                        class="space-y-1.5 md:space-y-2 max-h-[250px] md:max-h-[350px] lg:max-h-[350px] overflow-auto pr-1">
+                        @if (!empty($recent_trades))
+                            @foreach ($recent_trades as $trade)
+                                @php
+                                    $isBuy = $trade['isBuyerMaker'] == true;
+                                @endphp
+                                <div class="grid grid-cols-3 text-xs md:text-sm p-1 hover:bg-white/5 rounded">
+                                    <div class="{{ $isBuy ? 'text-green-400' : 'text-red-400' }}">
+                                        {{ number_format($trade['price'], 4) }}
+                                    </div>
+                                    <div class="text-center text-white/80">{{ number_format($trade['qty'], 4) }}</div>
+                                    <div class="text-right text-white/55">
+                                        {{ \Carbon\Carbon::createFromTimestampMs($trade['time'])->format('H:i:s') }}
+                                    </div>
+                                </div>
+                            @endforeach
+                        @endif
+                    </div>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    {{-- Bottom Table --}}
+    <div class="glow-border">
+        <div class="glass-panel rounded-3xl p-4 md:p-5">
+            {{-- Tabs --}}
+            <div class="flex flex-wrap items-center gap-2 mb-4">
+                <button data-target="#tab-balance"
+                    class="position-tab bg-accent-primary/20 border border-accent-primary/30 rounded-xl px-4 py-2 text-sm text-white">{{ __('Balance') }}</button>
+                <button data-target="#tab-positions"
+                    class="position-tab bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-sm text-white/70 hover:text-white">{{ __('Positions') }}</button>
+                <button data-target="#tab-open-orders"
+                    class="position-tab bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-sm text-white/70 hover:text-white">{{ __('Open Orders') }}</button>
+                <button data-target="#tab-closed-orders"
+                    class="position-tab bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-sm text-white/70 hover:text-white">{{ __('Closed Orders') }}</button>
+            </div>
+
+            {{-- Content: Positions --}}
+            <div id="tab-positions" class="tab-content hidden">
+                <div class="overflow-x-auto">
+                    <table class="min-w-[900px] w-full text-sm">
+                        <thead class="text-white/55">
+                            <tr class="border-b border-white/10">
+                                <th class="text-left py-3 px-4 font-medium">{{ __('Pair') }}</th>
+                                <th class="text-center py-3 px-4 font-medium">{{ __('Side') }}</th>
+                                <th class="text-right py-3 px-4 font-medium">{{ __('Size') }}</th>
+                                <th class="text-right py-3 px-4 font-medium">{{ __('Entry') }}</th>
+                                <th class="text-right py-3 px-4 font-medium">{{ __('Mark') }}</th>
+                                <th class="text-right py-3 px-4 font-medium">{{ __('Liq. Price') }}</th>
+                                <th class="text-right py-3 px-4 font-medium">{{ __('Margin Level') }}</th>
+                                <th class="text-right py-3 px-4 font-medium">{{ __('PnL (ROE)') }}</th>
+                            </tr>
+                        </thead>
+                        <tbody class="text-white/80">
+                            @forelse ($positions as $pos)
+                                @php
+                                    $pSide = $pos->side === 'buy' ? __('Long') : __('Short');
+                                    $pSideColor =
+                                        $pos->side === 'buy'
+                                            ? 'text-green-400 bg-green-400/10'
+                                            : 'text-red-400 bg-red-400/10';
+                                    $pEntry = (float) $pos->entry_price;
+                                    $pMark = (float) $pos->current_price;
+                                    $pPnL = (float) $pos->unrealized_pnl;
+                                    $pRoe = $pEntry > 0 ? ($pPnL / (($pEntry * $pos->size) / $pos->leverage)) * 100 : 0;
+                                    $pPnLColor = $pPnL >= 0 ? 'text-green-400' : 'text-red-400';
+                                @endphp
+                                <tr class="border-b border-white/5 hover:bg-white/5 transition">
+                                    <td class="py-3 px-4">
+                                        <div class="flex items-center gap-2">
+                                            <div
+                                                class="w-8 h-8 rounded-full bg-accent-primary/20 grid place-items-center text-accent-primary font-bold text-xs">
+                                                {{ substr($pos->ticker, 0, 1) }}</div>
+                                            <div>
+                                                <div class="font-semibold text-white">{{ $pos->ticker }}</div>
+                                                <div class="text-xs text-white/55">Margin
+                                                    {{ number_format($pos->leverage, 0) }}x</div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td class="py-3 px-4 text-center">
+                                        <span
+                                            class="{{ $pSideColor }} px-2 py-1 rounded text-xs font-semibold">{{ $pSide }}</span>
+                                    </td>
+                                    <td class="py-3 px-4 text-right font-mono">
+                                        {{ number_format($pos->size, 4) }}
+                                    </td>
+                                    <td class="py-3 px-4 text-right">${{ number_format($pEntry, 2) }}</td>
+                                    <td class="py-3 px-4 text-right">${{ number_format($pMark, 2) }}</td>
+                                    <td class="py-3 px-4 text-right text-orange-400">-</td>
+                                    <td class="py-3 px-4 text-right text-green-400">-</td>
+                                    <td class="py-3 px-4 text-right">
+                                        <div class="{{ $pPnLColor }} font-mono">
+                                            {{ $pPnL >= 0 ? '+' : '' }}{{ number_format($pPnL, 2) }}</div>
+                                        <div class="text-xs {{ $pPnLColor }}">
+                                            {{ $pRoe >= 0 ? '+' : '' }}{{ number_format($pRoe, 2) }}%</div>
+                                    </td>
+                                </tr>
+                            @empty
+                                <tr>
+                                    <td colspan="8" class="py-10 text-center text-white/30">
+                                        {{ __('No open positions') }}</td>
+                                </tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            {{-- Content: Open Orders --}}
+            <div id="tab-open-orders" class="tab-content hidden">
+                <div class="overflow-x-auto">
+                    <table class="min-w-full text-sm">
+                        <thead class="text-white/55">
+                            <tr class="border-b border-white/10">
+                                <th class="text-left py-3 px-4 font-medium">{{ __('Time') }}</th>
+                                <th class="text-left py-3 px-4 font-medium">{{ __('Symbol') }}</th>
+                                <th class="text-center py-3 px-4 font-medium">{{ __('Type') }}</th>
+                                <th class="text-center py-3 px-4 font-medium">{{ __('Side') }}</th>
+                                <th class="text-right py-3 px-4 font-medium">{{ __('Price') }}</th>
+                                <th class="text-right py-3 px-4 font-medium">{{ __('Amount') }}</th>
+                                <th class="text-right py-3 px-4 font-medium">{{ __('Filled') }}</th>
+                                <th class="text-right py-3 px-4 font-medium">{{ __('Action') }}</th>
+                            </tr>
+                        </thead>
+                        <tbody class="text-white/80">
+                            @forelse ($open_orders as $order)
+                                @php
+                                    $oSide = $order->side === 'buy' ? __('Buy') : __('Sell');
+                                    $oSideColor = $order->side === 'buy' ? 'text-green-400' : 'text-red-400';
+                                @endphp
+                                <tr class="border-b border-white/5 hover:bg-white/5 transition">
+                                    <td class="py-3 px-4 text-white/55">
+                                        {{ \Carbon\Carbon::createFromTimestampMs($order->timestamp)->format('m-d H:i') }}
+                                    </td>
+                                    <td class="py-3 px-4 font-semibold text-white">{{ $order->ticker }}</td>
+                                    <td class="py-3 px-4 text-center text-white/70">{{ ucfirst($order->type) }}</td>
+                                    <td class="py-3 px-4 text-center font-bold {{ $oSideColor }}">
+                                        {{ $oSide }}</td>
+                                    <td class="py-3 px-4 text-right">${{ number_format($order->price, 2) }}</td>
+                                    <td class="py-3 px-4 text-right">{{ number_format($order->size, 4) }}</td>
+                                    <td class="py-3 px-4 text-right text-white/55">0%</td>
+                                    <td class="py-3 px-4 text-right">
+                                        <button data-order-id="{{ $order->id }}"
+                                            class="btn-cancel-order text-xs bg-red-500/10 text-red-400 px-2 py-1 rounded hover:bg-red-500/20 transition shadow-sm">{{ __('Cancel') }}</button>
+                                    </td>
+                                </tr>
+                            @empty
+                                <tr>
+                                    <td colspan="8" class="py-10 text-center text-white/30">
+                                        {{ __('No open orders') }}</td>
+                                </tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            {{-- Content: Closed Orders --}}
+            <div id="tab-closed-orders" class="tab-content hidden">
+                <div class="overflow-x-auto">
+                    <table class="min-w-full text-sm">
+                        <thead class="text-white/55">
+                            <tr class="border-b border-white/10">
+                                <th class="text-left py-3 px-4 font-medium">{{ __('Time') }}</th>
+                                <th class="text-left py-3 px-4 font-medium">{{ __('Symbol') }}</th>
+                                <th class="text-center py-3 px-4 font-medium">{{ __('Side') }}</th>
+                                <th class="text-right py-3 px-4 font-medium">{{ __('Avg Price') }}</th>
+                                <th class="text-right py-3 px-4 font-medium">{{ __('Filled') }}</th>
+                                <th class="text-right py-3 px-4 font-medium">{{ __('Total') }}</th>
+                                <th class="text-right py-3 px-4 font-medium">{{ __('Status') }}</th>
+                            </tr>
+                        </thead>
+                        <tbody class="text-white/80">
+                            @forelse ($closed_orders as $order)
+                                @php
+                                    $cSide = $order->side === 'buy' ? __('Buy') : __('Sell');
+                                    $cSideColor = $order->side === 'buy' ? 'text-green-400' : 'text-red-400';
+                                    $cPrice = (float) $order->price;
+                                    $cAmount = (float) $order->size;
+                                    $cTotal = $cPrice * $cAmount;
+                                @endphp
+                                <tr class="border-b border-white/5 hover:bg-white/5 transition">
+                                    <td class="py-3 px-4 text-white/55">
+                                        {{ \Carbon\Carbon::createFromTimestampMs($order->timestamp)->format('m-d H:i') }}
+                                    </td>
+                                    <td class="py-3 px-4 font-semibold text-white">{{ $order->ticker }}</td>
+                                    <td class="py-3 px-4 text-center font-bold {{ $cSideColor }}">
+                                        {{ $cSide }}</td>
+                                    <td class="py-3 px-4 text-right">${{ number_format($cPrice, 2) }}</td>
+                                    <td class="py-3 px-4 text-right">{{ number_format($cAmount, 4) }}</td>
+                                    <td class="py-3 px-4 text-right text-white/70">${{ number_format($cTotal, 2) }}
+                                    </td>
+                                    <td class="py-3 px-4 text-right uppercase font-bold text-xs">
+                                        @if ($order->status === 'filled')
+                                            <span class="text-green-400">{{ __('Filled') }}</span>
+                                        @else
+                                            <span class="text-white/30">{{ ucfirst($order->status) }}</span>
+                                        @endif
+                                    </td>
+                                </tr>
+                            @empty
+                                <tr>
+                                    <td colspan="7" class="py-10 text-center text-white/30">
+                                        {{ __('No order history') }}</td>
+                                </tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            {{-- Content: Balance --}}
+            <div id="tab-balance" class="tab-content">
+                <div class="overflow-x-auto">
+                    <table class="min-w-full text-sm">
+                        <thead class="text-white/55">
+                            <tr class="border-b border-white/10">
+                                <th class="text-left py-3 px-4 font-medium">{{ __('Asset') }}</th>
+                                <th class="text-right py-3 px-4 font-medium">{{ __('Total') }}</th>
+                                <th class="text-right py-3 px-4 font-medium">{{ __('Borrowed') }}</th>
+                                <th class="text-right py-3 px-4 font-medium">{{ __('Net') }}</th>
+                                <th class="text-right py-3 px-4 font-medium">{{ __('Value') }}
+                                    ({{ $current_ticker_info['quote'] }})
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody class="text-white/80">
+                            @php
+                                // Mock some assets but including the current trading account balance
+                                $topAssets = [
+                                    [
+                                        'symbol' => $trading_account->currency,
+                                        'name' => __('Trading Balance'),
+                                        'balance' => $trading_account->balance,
+                                        'price' => 1,
+                                        'borrowed' => 0,
+                                    ],
+                                ];
+                                // Add more assets if needed
+                            @endphp
+                            @foreach ($topAssets as $asset)
+                                <tr class="border-b border-white/5 hover:bg-white/5 transition">
+                                    <td class="py-3 px-4">
+                                        <div class="flex items-center gap-3">
+                                            <div
+                                                class="w-8 h-8 rounded-full bg-accent-primary/20 grid place-items-center text-accent-primary font-bold text-xs ring-1 ring-accent-primary/30">
+                                                {{ substr($asset['symbol'], 0, 1) }}
+                                            </div>
+                                            <div>
+                                                <div class="font-semibold text-white">{{ $asset['symbol'] }}</div>
+                                                <div class="text-xs text-white/55">{{ $asset['name'] }}</div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td class="py-3 px-4 text-right font-mono">
+                                        {{ number_format($asset['balance'], 2) }}</td>
+                                    <td class="py-3 px-4 text-right font-mono text-red-400">-</td>
+                                    <td class="py-3 px-4 text-right font-mono text-green-400">
+                                        {{ number_format($asset['balance'], 2) }}</td>
+                                    <td class="py-3 px-4 text-right text-white/70">
+                                        ${{ number_format($asset['balance'] * $asset['price'], 2) }}
+                                    </td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+@endif
