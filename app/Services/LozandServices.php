@@ -63,6 +63,64 @@ class LozandServices
         'EUR/CHF', 'AUD/JPY', 'USD/HKD', 'USD/SGD', 'USD/MXN',
     ];
 
+    // Ticker → corporate / issuer domain. Used to build Clearbit logo URLs,
+    // which need the actual domain (e.g. apple.com), not the ticker. Anything
+    // not in this map falls back to a generic letter-avatar logo so the UI
+    // never shows a broken-image placeholder.
+    protected array $tickerDomainMap = [
+        // Stocks
+        'AAPL' => 'apple.com',
+        'MSFT' => 'microsoft.com',
+        'GOOGL' => 'abc.xyz',
+        'GOOG' => 'abc.xyz',
+        'AMZN' => 'amazon.com',
+        'NVDA' => 'nvidia.com',
+        'META' => 'meta.com',
+        'TSLA' => 'tesla.com',
+        'UNH' => 'unitedhealthgroup.com',
+        'JPM' => 'jpmorganchase.com',
+        'JNJ' => 'jnj.com',
+        'V' => 'visa.com',
+        'PG' => 'pg.com',
+        'MA' => 'mastercard.com',
+        'HD' => 'homedepot.com',
+        'BAC' => 'bankofamerica.com',
+        'XOM' => 'exxonmobil.com',
+        'ABBV' => 'abbvie.com',
+        'MRK' => 'merck.com',
+        'CVX' => 'chevron.com',
+        'PFE' => 'pfizer.com',
+        'WMT' => 'walmart.com',
+        'KO' => 'coca-colacompany.com',
+        'NFLX' => 'netflix.com',
+        'DIS' => 'thewaltdisneycompany.com',
+        'INTC' => 'intel.com',
+        'AMD' => 'amd.com',
+        'CSCO' => 'cisco.com',
+        'ORCL' => 'oracle.com',
+        // ETFs — issuer domain
+        'SPY' => 'ssga.com',
+        'QQQ' => 'invesco.com',
+        'IWM' => 'ishares.com',
+        'EFA' => 'ishares.com',
+        'AGG' => 'ishares.com',
+        'VTI' => 'vanguard.com',
+        'BND' => 'vanguard.com',
+        'GLD' => 'spdrgoldshares.com',
+        'SLV' => 'ishares.com',
+        'TLT' => 'ishares.com',
+        'HYG' => 'ishares.com',
+        'LQD' => 'ishares.com',
+        'VNQ' => 'vanguard.com',
+        'XLE' => 'sectorspdrs.com',
+        'XLF' => 'sectorspdrs.com',
+        'XLV' => 'sectorspdrs.com',
+        'XLK' => 'sectorspdrs.com',
+        'XLI' => 'sectorspdrs.com',
+        'XLU' => 'sectorspdrs.com',
+        'XLC' => 'sectorspdrs.com',
+    ];
+
     public function __construct()
     {
         $this->twelveDataUrl = config('services.twelvedata.base_url', 'https://api.twelvedata.com');
@@ -975,6 +1033,36 @@ class LozandServices
     }
 
     /**
+     * Build a logo URL for a stock or ETF ticker. Known tickers map to the
+     * issuer's domain and resolve via Clearbit's free logo API; unknown
+     * tickers fall back to a ui-avatars.com letter avatar so the templates
+     * never render a broken-image icon.
+     */
+    private function logoForTicker(string $ticker): string
+    {
+        $ticker = strtoupper(trim($ticker));
+        if ($ticker === '') {
+            return '';
+        }
+
+        $domain = $this->tickerDomainMap[$ticker] ?? null;
+        if ($domain) {
+            return 'https://logo.clearbit.com/' . $domain;
+        }
+
+        // Deterministic letter avatar; PNG, no auth, always returns 200.
+        return 'https://ui-avatars.com/api/?'
+            . http_build_query([
+                'name'       => $ticker,
+                'background' => '1f2937',
+                'color'      => 'ffffff',
+                'bold'       => 'true',
+                'format'     => 'png',
+                'size'       => 128,
+            ]);
+    }
+
+    /**
      * User-facing error response when no fresh or stale data can be returned.
      * Never surfaces the upstream "ran out of credits" wording to end users.
      */
@@ -1027,8 +1115,10 @@ class LozandServices
             // ETF-specific fields (free tier doesn't return AUM or NAV separately)
             'assets_under_management'   => (float)($quote['aum']         ?? 0),
             'current_nav'               => (float)($quote['nav']         ?? $quote['close'] ?? 0),
-            // Stock logo via Clearbit Logo API (returns blank image if not found, never crashes)
-            'public_png_logo_url'       => 'https://logo.clearbit.com/' . strtolower($symbol) . '.com',
+            // Stock / ETF logo — falls back to a deterministic letter avatar
+            // when the ticker isn't in our domain map, so the UI never renders
+            // a broken-image placeholder.
+            'public_png_logo_url'       => $this->logoForTicker($symbol),
         ];
     }
 
