@@ -430,24 +430,30 @@ class UserController extends Controller
             ], 500);
         }
     }
-    public function loginAs($id)
+    public function loginAs(Request $request, $id)
     {
         $user = \App\Models\User::findOrFail($id);
 
         try {
-            \Illuminate\Support\Facades\Auth::guard('web')->login($user);
-            session()->put('admin_impersonation', true);
+            // Drop any prior web-guard session so we never end up layered with
+            // a stale user on top of the new one.
+            if (\Illuminate\Support\Facades\Auth::guard('web')->check()) {
+                \Illuminate\Support\Facades\Auth::guard('web')->logout();
+            }
 
-            return response()->json([
-                'success' => true,
-                'message' => __('Redirecting to user dashboard...'),
-                'redirect_url' => route('user.dashboard')
+            \Illuminate\Support\Facades\Auth::guard('web')->login($user);
+            $request->session()->put('admin_impersonation', true);
+            // Force the session record to disk before the redirect so the new
+            // tab definitely sees the impersonation flag on the very first hit.
+            $request->session()->save();
+
+            return redirect()->route('user.dashboard');
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('[loginAs] failed for user ' . $id . ': ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString(),
             ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => __('An error occurred while trying to login as user.')
-            ], 500);
+            return redirect()->route('admin.users.detail', ['id' => $id])
+                ->with('error', __('An error occurred while trying to login as user.'));
         }
     }
 

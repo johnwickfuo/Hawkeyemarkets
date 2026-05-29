@@ -1532,19 +1532,30 @@
                     $('#loading-spinner').removeClass('hidden').addClass('flex');
                     $('#confirm-modal').addClass('hidden').removeClass('flex');
 
+                    // Login-as bypasses the bulk-action AJAX path entirely —
+                    // it opens a server-signed GET URL in a new tab so it works
+                    // even when the page-level CSRF token has expired/rotated.
+                    if (currentAction === 'login_as') {
+                        window.open(
+                            "{{ \Illuminate\Support\Facades\URL::temporarySignedRoute('admin.users.login-as', now()->addMinutes(15), ['id' => $user->id]) }}",
+                            '_blank'
+                        );
+                        toastNotification(
+                            "{{ __('Opening user dashboard in a new tab...') }}",
+                            'success'
+                        );
+                        $('#loading-spinner').addClass('hidden').removeClass('flex');
+                        currentUserId = null;
+                        currentAction = null;
+                        return;
+                    }
+
                     let url = "{{ route('admin.users.bulk-action') }}";
                     let data = {
                         _token: "{{ csrf_token() }}",
                         ids: [currentUserId],
                         action: currentAction
                     };
-
-                    if (currentAction === 'login_as') {
-                        url = "{{ route('admin.users.login-as', ':id') }}".replace(':id', currentUserId);
-                        data = {
-                            _token: "{{ csrf_token() }}"
-                        };
-                    }
 
                     $.ajax({
                         url: url,
@@ -1554,9 +1565,6 @@
                             if (response.success || response.status === 'success') {
                                 if (currentAction === 'delete') {
                                     window.location.href = "{{ route('admin.users.index') }}";
-                                } else if (currentAction === 'login_as') {
-                                    window.open(response.redirect_url, '_blank');
-                                    toastNotification(response.message, 'success');
                                 } else {
                                     // No reload, update content via ajax
                                     updateDetailContent();
