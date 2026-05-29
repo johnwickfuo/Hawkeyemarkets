@@ -90,7 +90,7 @@ return [
         // Email Notification setting
         'email_notification' => [
             'append_date_to_subject' => 'enabled',
-            'email_queue' => 'disabed',
+            'email_queue' => 'disabled',
             'notifications' => [
                 'deposit' => [
                     'status' => 'enabled',

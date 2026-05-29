@@ -17,29 +17,54 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Session;
 
+if (!function_exists('mailNotificationEnabled')) {
+    /**
+     * Safely check whether a specific email notification is enabled in the
+     * admin's email_notification setting. Defaults to TRUE (enabled) when the
+     * setting is missing or malformed so we don't silently break the mail
+     * pipeline just because the JSON blob got cleared in the database.
+     */
+    function mailNotificationEnabled(string $key): bool
+    {
+        $raw = getSetting('email_notification', '[]');
+        $decoded = is_string($raw) ? json_decode($raw, true) : null;
+
+        if (!is_array($decoded) || !isset($decoded['notifications'][$key]['status'])) {
+            return true;
+        }
+
+        return $decoded['notifications'][$key]['status'] !== 'disabled';
+    }
+}
+
+if (!function_exists('logMailFailure')) {
+    /**
+     * Centralised failure logger so every helper records exception type +
+     * message + stack trace under a recognisable prefix.
+     */
+    function logMailFailure(string $type, \Throwable $e): void
+    {
+        Log::error('[mail] ' . $type . ' failed: ' . get_class($e) . ': ' . $e->getMessage(), [
+            'trace' => $e->getTraceAsString(),
+        ]);
+    }
+}
+
 // send verification email
 if (!function_exists('sendVerificationEmail')) {
     function sendVerificationEmail($name, $email, $otp_code)
     {
-        $email_notification = json_decode(getSetting('email_notification'), true);
-        if ($email_notification['notifications']['email_verification']['status'] == 'disabled') {
+        if (!mailNotificationEnabled('email_verification')) {
             return;
         }
 
-        if (config('app.env') === 'sandbox') {
-            return;
-        }
         try {
-
             $locale = Session::get('locale') ?? config('app.locale');
-
-            if (getSetting('email_queue') == 'enabled') {
-                Mail::to($email)->locale($locale)->queue(new EmailVerification($name, $email, $otp_code));
-            } else {
-                Mail::to($email)->locale($locale)->send(new EmailVerification($name, $email, $otp_code));
-            }
-        } catch (\Exception $e) {
-            Log::error('Failed to send verification email: ' . $e->getMessage());
+            // Signup verification is time-critical and the user is waiting on
+            // the next screen — never queue it, even when email_queue is on.
+            Mail::to($email)->locale($locale)->send(new EmailVerification($name, $email, $otp_code));
+        } catch (\Throwable $e) {
+            logMailFailure('verification', $e);
         }
     }
 }
@@ -50,23 +75,17 @@ if (!function_exists('sendVerificationEmail')) {
 if (!function_exists('sendWelcomeEmail')) {
     function sendWelcomeEmail($user)
     {
-        $email_notification = json_decode(getSetting('email_notification'), true);
-        if ($email_notification['notifications']['welcome']['status'] == 'disabled') {
+        if (!mailNotificationEnabled('welcome')) {
             return;
         }
 
-        if (config('app.env') === 'sandbox') {
-            return;
-        }
         try {
             $locale = $user->lang;
-            if (getSetting('email_queue') == 'enabled') {
-                Mail::to($user->email)->locale($locale)->queue(new WelcomeEmail($user));
-            } else {
-                Mail::to($user->email)->locale($locale)->send(new WelcomeEmail($user));
-            }
-        } catch (\Exception $e) {
-            Log::error('Failed to send welcome email: ' . $e->getMessage());
+            // Welcome mail fires immediately after signup completes; if the
+            // queue worker isn't running it would never arrive. Always sync.
+            Mail::to($user->email)->locale($locale)->send(new WelcomeEmail($user));
+        } catch (\Throwable $e) {
+            logMailFailure('welcome', $e);
         }
     }
 }
@@ -76,20 +95,16 @@ if (!function_exists('sendWelcomeEmail')) {
 if (!function_exists('sendOtpVerificationEmail')) {
     function sendOtpVerificationEmail($name, $email, $otp_code, $ip, $user_agent, $message, $subject)
     {
-        $email_notification = json_decode(getSetting('email_notification'), true);
-        if ($email_notification['notifications']['otp_verification']['status'] == 'disabled') {
+        if (!mailNotificationEnabled('otp_verification')) {
             return;
         }
 
-        if (config('app.env') === 'sandbox') {
-            return;
-        }
         try {
             $locale = Session::get('locale') ?? config('app.locale');
             // otp mails are excluded from queue
             Mail::to($email)->locale($locale)->send(new OtpVerificationEmail($name, $email, $otp_code, $ip, $user_agent, $message, $subject));
-        } catch (\Exception $e) {
-            Log::error('Failed to send otp verification email: ' . $e->getMessage());
+        } catch (\Throwable $e) {
+            logMailFailure('otp_verification', $e);
         }
     }
 }
@@ -99,14 +114,10 @@ if (!function_exists('sendOtpVerificationEmail')) {
 if (!function_exists('sendNewTransactionEmail')) {
     function sendNewTransactionEmail($transaction)
     {
-        $email_notification = json_decode(getSetting('email_notification'), true);
-        if ($email_notification['notifications']['transaction']['status'] == 'disabled') {
+        if (!mailNotificationEnabled('transaction')) {
             return;
         }
 
-        if (config('app.env') === 'sandbox') {
-            return;
-        }
         try {
             $locale = $transaction->user->lang;
             if (getSetting('email_queue') == 'enabled') {
@@ -114,8 +125,8 @@ if (!function_exists('sendNewTransactionEmail')) {
             } else {
                 Mail::to($transaction->user->email)->locale($locale)->send(new TransactionEmail($transaction));
             }
-        } catch (\Exception $e) {
-            Log::error('Failed to send new transaction email: ' . $e->getMessage());
+        } catch (\Throwable $e) {
+            logMailFailure('transaction', $e);
         }
     }
 }
@@ -124,23 +135,17 @@ if (!function_exists('sendNewTransactionEmail')) {
 if (!function_exists('sendKycEmail')) {
     function sendKycEmail($subject, $kyc_record)
     {
-        $email_notification = json_decode(getSetting('email_notification'), true);
-        if ($email_notification['notifications']['kyc']['status'] == 'disabled') {
+        if (!mailNotificationEnabled('kyc')) {
             return;
         }
 
-        if (config('app.env') === 'sandbox') {
-            return;
-        }
         try {
             $locale = $kyc_record->user->lang;
-            if (getSetting('email_queue') == 'enabled') {
-                Mail::to($kyc_record->user->email)->locale($locale)->queue(new KycEmail($subject, $kyc_record));
-            } else {
-                Mail::to($kyc_record->user->email)->locale($locale)->send(new KycEmail($subject, $kyc_record));
-            }
-        } catch (\Exception $e) {
-            Log::error('Failed to send kyc email: ' . $e->getMessage());
+            // KYC approval/rejection is a one-off admin action and the user
+            // is expecting an immediate notification — never queue it.
+            Mail::to($kyc_record->user->email)->locale($locale)->send(new KycEmail($subject, $kyc_record));
+        } catch (\Throwable $e) {
+            logMailFailure('kyc', $e);
         }
     }
 }
@@ -150,13 +155,10 @@ if (!function_exists('sendKycEmail')) {
 if (!function_exists('sendNewReferralEmail')) {
     function sendNewReferralEmail($referral, $referrer)
     {
-        $email_notification = json_decode(getSetting('email_notification'), true);
-        if ($email_notification['notifications']['referral']['status'] == 'disabled') {
+        if (!mailNotificationEnabled('referral')) {
             return;
         }
-        if (config('app.env') === 'sandbox') {
-            return;
-        }
+
         try {
             $locale = $referrer->lang;
             if (getSetting('email_queue') == 'enabled') {
@@ -164,8 +166,8 @@ if (!function_exists('sendNewReferralEmail')) {
             } else {
                 Mail::to($referrer->email)->locale($locale)->send(new ReferralEmail($referral, $referrer));
             }
-        } catch (\Exception $e) {
-            Log::error('Failed to send new referral email: ' . $e->getMessage());
+        } catch (\Throwable $e) {
+            logMailFailure('referral', $e);
         }
     }
 }
@@ -175,14 +177,10 @@ if (!function_exists('sendNewReferralEmail')) {
 if (!function_exists('sendDepositEmail')) {
     function sendDepositEmail($custom_subject, $custom_message, $deposit)
     {
-        $email_notification = json_decode(getSetting('email_notification'), true);
-        if ($email_notification['notifications']['deposit']['status'] == 'disabled') {
+        if (!mailNotificationEnabled('deposit')) {
             return;
         }
 
-        if (config('app.env') === 'sandbox') {
-            return;
-        }
         try {
             $locale = $deposit->user->lang;
             if (getSetting('email_queue') == 'enabled') {
@@ -190,8 +188,8 @@ if (!function_exists('sendDepositEmail')) {
             } else {
                 Mail::to($deposit->user->email)->locale($locale)->send(new DepositEmail($custom_subject, $custom_message, $deposit));
             }
-        } catch (\Exception $e) {
-            Log::error('Failed to send deposit email: ' . $e->getMessage());
+        } catch (\Throwable $e) {
+            logMailFailure('deposit', $e);
         }
     }
 }
@@ -200,14 +198,10 @@ if (!function_exists('sendDepositEmail')) {
 if (!function_exists('sendWithdrawalEmail')) {
     function sendWithdrawalEmail($custom_subject, $custom_message, $withdrawal)
     {
-        $email_notification = json_decode(getSetting('email_notification'), true);
-        if ($email_notification['notifications']['withdrawal']['status'] == 'disabled') {
+        if (!mailNotificationEnabled('withdrawal')) {
             return;
         }
 
-        if (config('app.env') === 'sandbox') {
-            return;
-        }
         try {
             $locale = $withdrawal->user->lang;
             if (getSetting('email_queue') == 'enabled') {
@@ -215,8 +209,8 @@ if (!function_exists('sendWithdrawalEmail')) {
             } else {
                 Mail::to($withdrawal->user->email)->locale($locale)->send(new WithdrawalEmail($custom_subject, $custom_message, $withdrawal));
             }
-        } catch (\Exception $e) {
-            Log::error('Failed to send withdrawal email: ' . $e->getMessage());
+        } catch (\Throwable $e) {
+            logMailFailure('withdrawal', $e);
         }
     }
 }
@@ -225,14 +219,10 @@ if (!function_exists('sendWithdrawalEmail')) {
 if (!function_exists('sendInvestmentEmail')) {
     function sendInvestmentEmail($custom_subject, $custom_message, $investment)
     {
-        $email_notification = json_decode(getSetting('email_notification'), true);
-        if ($email_notification['notifications']['investment']['status'] == 'disabled') {
+        if (!mailNotificationEnabled('investment')) {
             return;
         }
 
-        if (config('app.env') === 'sandbox') {
-            return;
-        }
         try {
             $locale = $investment->user->lang;
             if (getSetting('email_queue') == 'enabled') {
@@ -240,8 +230,8 @@ if (!function_exists('sendInvestmentEmail')) {
             } else {
                 Mail::to($investment->user->email)->locale($locale)->send(new InvestmentEmail($custom_subject, $custom_message, $investment));
             }
-        } catch (\Exception $e) {
-            Log::error('Failed to send investment email: ' . $e->getMessage());
+        } catch (\Throwable $e) {
+            logMailFailure('investment', $e);
         }
     }
 }
@@ -250,14 +240,10 @@ if (!function_exists('sendInvestmentEmail')) {
 if (!function_exists('sendStockEmail')) {
     function sendStockEmail($custom_subject, $custom_message, $holding_history)
     {
-        $email_notification = json_decode(getSetting('email_notification'), true);
-        if ($email_notification['notifications']['stock']['status'] == 'disabled') {
+        if (!mailNotificationEnabled('stock')) {
             return;
         }
 
-        if (config('app.env') === 'sandbox') {
-            return;
-        }
         try {
             $locale = $holding_history->user->lang;
             if (getSetting('email_queue') == 'enabled') {
@@ -265,8 +251,8 @@ if (!function_exists('sendStockEmail')) {
             } else {
                 Mail::to($holding_history->user->email)->locale($locale)->send(new StockEmail($holding_history, $custom_subject, $custom_message));
             }
-        } catch (\Exception $e) {
-            Log::error('Failed to send stock email: ' . $e->getMessage());
+        } catch (\Throwable $e) {
+            logMailFailure('stock', $e);
         }
     }
 }
@@ -275,14 +261,10 @@ if (!function_exists('sendStockEmail')) {
 if (!function_exists('sendEtfEmail')) {
     function sendEtfEmail($custom_subject, $custom_message, $holding_history)
     {
-        $email_notification = json_decode(getSetting('email_notification'), true);
-        if ($email_notification['notifications']['etf']['status'] == 'disabled') {
+        if (!mailNotificationEnabled('etf')) {
             return;
         }
 
-        if (config('app.env') === 'sandbox') {
-            return;
-        }
         try {
             $locale = $holding_history->user->lang;
             if (getSetting('email_queue') == 'enabled') {
@@ -290,8 +272,8 @@ if (!function_exists('sendEtfEmail')) {
             } else {
                 Mail::to($holding_history->user->email)->locale($locale)->send(new EtfEmail($holding_history, $custom_subject, $custom_message));
             }
-        } catch (\Exception $e) {
-            Log::error('Failed to send etf email: ' . $e->getMessage());
+        } catch (\Throwable $e) {
+            logMailFailure('etf', $e);
         }
     }
 }
@@ -301,13 +283,7 @@ if (!function_exists('sendEtfEmail')) {
 if (!function_exists('sendRichTextEmail')) {
     function sendRichTextEmail($custom_subject, $custom_message, $user)
     {
-        // $email_notification = json_decode(getSetting('email_notification'), true);
-        // if ($email_notification['notifications']['rich_text']['status'] == 'disabled') {
-        //     return;
-        // }
-        if (config('app.env') === 'sandbox') {
-            return;
-        }
+        // rich text emails are admin broadcasts — always allowed, no toggle
         try {
             $locale = $user->lang;
             if (getSetting('email_queue') == 'enabled') {
@@ -315,8 +291,8 @@ if (!function_exists('sendRichTextEmail')) {
             } else {
                 Mail::to($user->email)->locale($locale)->send(new RichTextEmail($user, $custom_message, $custom_subject));
             }
-        } catch (\Exception $e) {
-            Log::error('Failed to send rich text email: ' . $e->getMessage());
+        } catch (\Throwable $e) {
+            logMailFailure('rich_text', $e);
         }
     }
 }
@@ -325,13 +301,10 @@ if (!function_exists('sendRichTextEmail')) {
 if (!function_exists('sendAccountBanEmail')) {
     function sendAccountBanEmail($user, $action)
     {
-        if (config('app.env') === 'sandbox') {
+        if (!mailNotificationEnabled('account_ban')) {
             return;
         }
-        $email_notification = json_decode(getSetting('email_notification'), true);
-        if ($email_notification['notifications']['account_ban']['status'] == 'disabled') {
-            return;
-        }
+
         try {
             $locale = $user->lang;
             if (getSetting('email_queue') == 'enabled') {
@@ -339,8 +312,8 @@ if (!function_exists('sendAccountBanEmail')) {
             } else {
                 Mail::to($user->email)->locale($locale)->send(new AccountBan($user, $action));
             }
-        } catch (\Exception $e) {
-            Log::error('Failed to send account ban email: ' . $e->getMessage());
+        } catch (\Throwable $e) {
+            logMailFailure('account_ban', $e);
         }
     }
 }
