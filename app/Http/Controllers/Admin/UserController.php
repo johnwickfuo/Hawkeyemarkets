@@ -443,17 +443,23 @@ class UserController extends Controller
 
             \Illuminate\Support\Facades\Auth::guard('web')->login($user);
             $request->session()->put('admin_impersonation', true);
-            // Force the session record to disk before the redirect so the new
+            // Force the session record to disk before the response so the new
             // tab definitely sees the impersonation flag on the very first hit.
             $request->session()->save();
 
-            return redirect()->route('user.dashboard');
+            return response()->json([
+                'success' => true,
+                'message' => __('Redirecting to user dashboard...'),
+                'redirect_url' => route('user.dashboard'),
+            ]);
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::error('[loginAs] failed for user ' . $id . ': ' . $e->getMessage(), [
                 'trace' => $e->getTraceAsString(),
             ]);
-            return redirect()->route('admin.users.detail', ['id' => $id])
-                ->with('error', __('An error occurred while trying to login as user.'));
+            return response()->json([
+                'success' => false,
+                'message' => __('An error occurred while trying to login as user.'),
+            ], 500);
         }
     }
 

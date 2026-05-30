@@ -48,7 +48,7 @@ class WithdrawalEmail extends Mailable
         $view = "templates.{$template}.mail.withdrawal-email";
 
         return new Content(
-            markdown: $view,
+            view: $view,
             with: [
                 'withdrawal' => $this->withdrawal,
                 'custom_message' => $this->custom_message,

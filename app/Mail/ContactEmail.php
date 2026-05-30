@@ -51,7 +51,7 @@ class ContactEmail extends Mailable
         $view = "templates.{$template}.mail.contact-email";
 
         return new Content(
-            markdown: $view,
+            view: $view,
             with: [
                 'sender_name' => $this->sender_name,
                 'sender_email' => $this->sender_email,

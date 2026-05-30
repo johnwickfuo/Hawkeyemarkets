@@ -46,7 +46,7 @@ class EtfEmail extends Mailable
         $view = "templates.{$template}.mail.etf-email";
 
         return new Content(
-            markdown: $view,
+            view: $view,
             with: [
                 'holding_history' => $this->holding_history,
                 'custom_subject' => $this->custom_subject,

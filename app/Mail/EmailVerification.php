@@ -50,7 +50,7 @@ class EmailVerification extends Mailable
         $view = "templates.{$template}.mail.email-verification";
 
         return new Content(
-            markdown: $view,
+            view: $view,
             with: [
                 'name' => $this->name,
                 'email' => $this->email,

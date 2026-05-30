@@ -54,7 +54,12 @@ if (!function_exists('logMailFailure')) {
 if (!function_exists('sendVerificationEmail')) {
     function sendVerificationEmail($name, $email, $otp_code)
     {
+        Log::info('[mail] verification: attempt for ' . $email
+            . ' | mailer=' . (string) config('mail.default')
+            . ' | from=' . (string) config('mail.from.address'));
+
         if (!mailNotificationEnabled('email_verification')) {
+            Log::warning('[mail] verification: skipped — admin has the "Email Verification" notification toggle disabled in Settings > Email');
             return;
         }
 
@@ -63,6 +68,7 @@ if (!function_exists('sendVerificationEmail')) {
             // Signup verification is time-critical and the user is waiting on
             // the next screen — never queue it, even when email_queue is on.
             Mail::to($email)->locale($locale)->send(new EmailVerification($name, $email, $otp_code));
+            Log::info('[mail] verification: send completed without exception for ' . $email);
         } catch (\Throwable $e) {
             logMailFailure('verification', $e);
         }
@@ -135,7 +141,13 @@ if (!function_exists('sendNewTransactionEmail')) {
 if (!function_exists('sendKycEmail')) {
     function sendKycEmail($subject, $kyc_record)
     {
+        $recipient = $kyc_record->user->email ?? '(no user email)';
+        Log::info('[mail] kyc: attempt for ' . $recipient
+            . ' | mailer=' . (string) config('mail.default')
+            . ' | from=' . (string) config('mail.from.address'));
+
         if (!mailNotificationEnabled('kyc')) {
+            Log::warning('[mail] kyc: skipped — admin has the "KYC" notification toggle disabled in Settings > Email');
             return;
         }
 
@@ -144,6 +156,7 @@ if (!function_exists('sendKycEmail')) {
             // KYC approval/rejection is a one-off admin action and the user
             // is expecting an immediate notification — never queue it.
             Mail::to($kyc_record->user->email)->locale($locale)->send(new KycEmail($subject, $kyc_record));
+            Log::info('[mail] kyc: send completed without exception for ' . $recipient);
         } catch (\Throwable $e) {
             logMailFailure('kyc', $e);
         }

@@ -46,7 +46,7 @@ class RichTextEmail extends Mailable
         $view = "templates.{$template}.mail.rich-text-email";
 
         return new Content(
-            markdown: $view,
+            view: $view,
             with: [
                 'user' => $this->user,
                 'content' => $this->content,

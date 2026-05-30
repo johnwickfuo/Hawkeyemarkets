@@ -44,7 +44,7 @@ class KycEmail extends Mailable
         $view = "templates.{$template}.mail.kyc-email";
 
         return new Content(
-            markdown: $view,
+            view: $view,
             with: [
                 'kyc_record' => $this->kyc_record,
             ],

@@ -46,7 +46,7 @@ class InvestmentEmail extends Mailable
         $view = "templates.{$template}.mail.investment-email";
 
         return new Content(
-            markdown: $view,
+            view: $view,
             with: [
                 'investment' => $this->investment,
                 'custom_message' => $this->custom_message,

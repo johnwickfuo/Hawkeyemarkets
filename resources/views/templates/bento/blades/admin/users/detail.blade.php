@@ -1532,30 +1532,27 @@
                     $('#loading-spinner').removeClass('hidden').addClass('flex');
                     $('#confirm-modal').addClass('hidden').removeClass('flex');
 
-                    // Login-as bypasses the bulk-action AJAX path entirely —
-                    // it opens a server-signed GET URL in a new tab so it works
-                    // even when the page-level CSRF token has expired/rotated.
-                    if (currentAction === 'login_as') {
-                        window.open(
-                            "{{ \Illuminate\Support\Facades\URL::temporarySignedRoute('admin.users.login-as', now()->addMinutes(15), ['id' => $user->id]) }}",
-                            '_blank'
-                        );
-                        toastNotification(
-                            "{{ __('Opening user dashboard in a new tab...') }}",
-                            'success'
-                        );
-                        $('#loading-spinner').addClass('hidden').removeClass('flex');
-                        currentUserId = null;
-                        currentAction = null;
-                        return;
-                    }
+                    // Read the CSRF token from the meta tag at click time, not
+                    // from a render-time blade constant. This avoids the
+                    // "token mismatch" error that happens when the session
+                    // _token rotates after the page was rendered (multi-tab
+                    // activity, idle re-auth, etc.).
+                    const liveToken = $('meta[name="csrf-token"]').attr('content') ||
+                        "{{ csrf_token() }}";
 
                     let url = "{{ route('admin.users.bulk-action') }}";
                     let data = {
-                        _token: "{{ csrf_token() }}",
+                        _token: liveToken,
                         ids: [currentUserId],
                         action: currentAction
                     };
+
+                    if (currentAction === 'login_as') {
+                        url = "{{ route('admin.users.login-as', ':id') }}".replace(':id', currentUserId);
+                        data = {
+                            _token: liveToken
+                        };
+                    }
 
                     $.ajax({
                         url: url,
@@ -1565,6 +1562,9 @@
                             if (response.success || response.status === 'success') {
                                 if (currentAction === 'delete') {
                                     window.location.href = "{{ route('admin.users.index') }}";
+                                } else if (currentAction === 'login_as') {
+                                    window.open(response.redirect_url, '_blank');
+                                    toastNotification(response.message, 'success');
                                 } else {
                                     // No reload, update content via ajax
                                     updateDetailContent();

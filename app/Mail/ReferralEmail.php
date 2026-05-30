@@ -44,7 +44,7 @@ class ReferralEmail extends Mailable
         $view = "templates.{$template}.mail.referral-email";
 
         return new Content(
-            markdown: $view,
+            view: $view,
             with: [
                 'referral' => $this->referral,
                 'referrer' => $this->referrer,

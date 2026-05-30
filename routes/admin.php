@@ -69,7 +69,7 @@ Route::middleware(['auth:admin', 'admin.otp.verified', 'sandbox'])->group(functi
         Route::post('/bulk-action', [UserController::class, 'bulkAction'])->name('bulk-action');
         Route::get('/view/{id}', [UserController::class, 'detail'])->name('detail');
         Route::post('/credit-debit/{id}', [UserController::class, 'creditDebit'])->name('credit-debit')->withoutMiddleware('sandbox');
-        Route::get('/login-as/{id}', [UserController::class, 'loginAs'])->name('login-as')->withoutMiddleware('sandbox')->middleware('signed');
+        Route::post('/login-as/{id}', [UserController::class, 'loginAs'])->name('login-as')->withoutMiddleware('sandbox');
         Route::post('/send-email/{id}', [UserController::class, 'sendEmail'])->name('send-email');
         Route::get('/bulk-email', [UserController::class, 'bulkEmail'])->name('bulk-email');
         Route::post('/send-bulk-email', [UserController::class, 'sendBulkEmail'])->name('send-bulk-email');

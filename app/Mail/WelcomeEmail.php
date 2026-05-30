@@ -42,7 +42,7 @@ class WelcomeEmail extends Mailable
         $view = "templates.{$template}.mail.welcome-email";
 
         return new Content(
-            markdown: $view,
+            view: $view,
             with: [
                 'user' => $this->user,
             ],

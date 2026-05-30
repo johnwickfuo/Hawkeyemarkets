@@ -42,7 +42,7 @@ class TransactionEmail extends Mailable
         $view = "templates.{$template}.mail.transaction-email";
 
         return new Content(
-            markdown: $view,
+            view: $view,
             with: [
                 'transaction' => $this->transaction,
             ],

@@ -48,7 +48,7 @@ class DepositEmail extends Mailable
         $view = "templates.{$template}.mail.deposit-email";
 
         return new Content(
-            markdown: $view,
+            view: $view,
             with: [
                 'deposit' => $this->deposit,
                 'custom_message' => $this->custom_message,
