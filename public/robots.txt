@@ -5,4 +5,4 @@ Disallow: /api
 Disallow: /utils
 Disallow: /storage
 
-Sitemap: https://hawkeyemarkets.com/sitemap.xml
+Sitemap: https://ironcrest.uk/sitemap.xml

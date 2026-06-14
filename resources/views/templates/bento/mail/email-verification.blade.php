@@ -11,7 +11,7 @@
 
     <p
         style="box-sizing: border-box; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol'; position: relative; font-size: 16px; line-height: 1.6em; margin-top: 16px; text-align: {{ $isRtl ? 'right' : 'left' }}; color: #cbd5e1;">
-        {{ __('We received a request to create an account for :site. To verify your identity and secure your investment journey, please enter the code below.', ['site' => getSetting('name')]) }}
+        {{ __('We received a request to create an account for you on :site. To verify your identity and secure your investment journey, please enter the code below.', ['site' => getSetting('name')]) }}
     </p>
 
     {{-- OTP Code Box --}}

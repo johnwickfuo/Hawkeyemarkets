@@ -78,7 +78,7 @@
     },
     "loan_module": {
         "name": "Loan",
-        "status": "disabled",
+        "status": "enabled",
         "menu_search": [
             {
                 "term": "Loan",
@@ -100,7 +100,7 @@
     },
     "p2p_transfer_module": {
         "name": "P2P Transfer",
-        "status": "disabled",
+        "status": "enabled",
         "menu_search": [
             {
                 "term": "P2P Transfer",
